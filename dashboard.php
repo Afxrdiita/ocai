@@ -1,9 +1,9 @@
-﻿<?php
+<?php
 const THURUK_BASE_URL = "https://localhost/thruk";
 const DEFAULT_SERVER = "yinnag01e";
 const SERVER_LIST = [
     "yinnag01e",
-    "cibnag01n",
+    "cignag01n",
     "wtsnag01nye",
     "stcnag01-uk",
     "symnag01-uk",
@@ -118,7 +118,7 @@ function buildHostSummary($hostName, $hostDetails, $services, $now) {
                 ". Nothing is critical yet, but these are drifting away from normal and could get worse.</p>";
         }
     } else {
-        $html .= "<p>Everything looks healthy right now â€” there is nothing needing attention, and no close monitoring is required. " .
+        $html .= "<p>Everything looks healthy right now — there is nothing needing attention, and no close monitoring is required. " .
             "The page will keep checking automatically every 30 seconds.</p>";
     }
 
@@ -203,7 +203,7 @@ function plainEnglish($service, $output, $state) {
 
     switch ((int)$state) {
         case 0: $parts[] = "Everything looks fine with the " . strtolower($name) . "."; break;
-        case 1: $parts[] = "The " . strtolower($name) . " needs attention â€” it's close to a limit."; break;
+        case 1: $parts[] = "The " . strtolower($name) . " needs attention — it's close to a limit."; break;
         case 2: $parts[] = "There is a problem with the " . strtolower($name) . " that needs fixing."; break;
         default: $parts[] = "We could not check the " . strtolower($name) . " right now."; break;
     }

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -235,12 +235,12 @@
         ?>;
 
         const resultFacts = [
-            "You're rarer than a perfect game of bowling â€” a 300 game happens only once in about 11,500 games!",
-            "Honey never spoils â€” edible pots found in ancient tombs are over 3,000 years old and still good. Great minds think sweet!",
-            "A group of flamingos is called a flamboyance. Like you today â€” pretty in pink!",
-            "Hot water can freeze faster than cold water â€” the Mpemba effect. Some things in science are counterintuitive, just like some quiz answers!",
-            "The first computer bug was an actual moth, found in 1947. Everyone starts somewhere â€” even debugging started with a bug!",
-            "Sea otters hold hands while sleeping so they don't drift apart. Keep holding on â€” you're doing great!",
+            "You're rarer than a perfect game of bowling — a 300 game happens only once in about 11,500 games!",
+            "Honey never spoils — edible pots found in ancient tombs are over 3,000 years old and still good. Great minds think sweet!",
+            "A group of flamingos is called a flamboyance. Like you today — pretty in pink!",
+            "Hot water can freeze faster than cold water — the Mpemba effect. Some things in science are counterintuitive, just like some quiz answers!",
+            "The first computer bug was an actual moth, found in 1947. Everyone starts somewhere — even debugging started with a bug!",
+            "Sea otters hold hands while sleeping so they don't drift apart. Keep holding on — you're doing great!",
             "A bolt of lightning is five times hotter than the surface of the sun. Your brain clearly runs hot too!",
             "Scotland's national animal is the unicorn. Believe in yourself like Scotland believes in unicorns!",
             "Sloths can hold their breath longer than dolphins can. Slow and steady still gets there!",
@@ -334,7 +334,7 @@
                         '</div>';
                 });
             } else {
-                reviewHtml = '<div class="review-perfect">Perfect score â€” nothing to review!</div>';
+                reviewHtml = '<div class="review-perfect">Perfect score — nothing to review!</div>';
             }
 
             quizBox.innerHTML =

@@ -1,9 +1,9 @@
-﻿<?php
+<?php
 const THURUK_BASE_URL = "https://localhost/thruk";
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
 const SERVER_LIST = [
     "yinnag01e",
-    "cibnag01n",
+    "cignag01n",
     "wtsnag01nye",
     "stcnag01-uk",
     "symnag01-uk",

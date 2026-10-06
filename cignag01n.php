@@ -1,3 +1,3 @@
-﻿<?php
-$pageHost = "cibnag01n";
+<?php
+$pageHost = "cignag01n";
 include __DIR__ . "/dashboard.php";

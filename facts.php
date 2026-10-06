@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -175,7 +175,7 @@
     <script>
         const facts = <?php
             $facts = [
-                "Honey never spoils â€” edible pots found in ancient tombs are still good.",
+                "Honey never spoils — edible pots found in ancient tombs are still good.",
                 "Octopuses have three hearts and blue blood.",
                 "A day on Venus is longer than a year on Venus.",
                 "Bananas are berries, but strawberries are not.",
@@ -184,14 +184,14 @@
                 "The first computer bug was an actual moth, found in 1947.",
                 "Sharks existed before trees did.",
                 "A group of flamingos is called a flamboyance.",
-                "Hot water can freeze faster than cold water â€” the Mpemba effect.",
+                "Hot water can freeze faster than cold water — the Mpemba effect.",
                 "A bolt of lightning is five times hotter than the surface of the sun.",
                 "Sea otters hold hands while sleeping so they don't drift apart.",
                 "The Eiffel Tower can grow more than 15 cm taller in summer heat.",
                 "There is enough DNA in your body, stretched end to end, to reach Pluto and back.",
                 "Cows have best friends and get stressed when separated from them.",
                 "A single strand of spider silk is stronger than steel of the same thickness.",
-                "The shortest war in history lasted 38 minutes â€” Britain vs Zanzibar, 1896.",
+                "The shortest war in history lasted 38 minutes — Britain vs Zanzibar, 1896.",
                 "Sloths can hold their breath longer than dolphins can.",
                 "Scotland's national animal is the unicorn.",
                 "Human teeth are as hard as shark teeth.",
@@ -200,9 +200,9 @@
                 "The dot over the letter 'i' is called a tittle.",
                 "Avocados are toxic to birds.",
                 "You cannot hum while holding your nose closed.",
-                "The loudest animal on Earth is the pistol shrimp â€” it stuns prey with a sonic blast.",
+                "The loudest animal on Earth is the pistol shrimp — it stuns prey with a sonic blast.",
                 "Venus is the only planet that spins clockwise.",
-                "A 'jiffy' is an actual unit of time â€” 1/100th of a second.",
+                "A 'jiffy' is an actual unit of time — 1/100th of a second.",
                 "Cats have over 100 vocal sounds; dogs have about 10.",
                 "A teaspoonful of neutron star matter would weigh about 6 billion tons.",
             ];
