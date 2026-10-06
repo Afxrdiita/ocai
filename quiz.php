@@ -248,6 +248,8 @@
         ];
 
         const QUESTIONS_PER_TEST = 10;
+        const QUESTION_HISTORY_KEY = "quizQuestionHistory";
+        const HISTORY_LIMIT = 50;
 
         const quizBox = document.getElementById("quiz-box");
         const progressEl = document.getElementById("progress");
@@ -272,7 +274,32 @@
             current = 0;
             score = 0;
             wrongAnswers = [];
-            questions = shuffle([...questionPool]).slice(0, QUESTIONS_PER_TEST);
+
+            let history = [];
+            try {
+                const stored = JSON.parse(localStorage.getItem(QUESTION_HISTORY_KEY));
+                history = Array.isArray(stored) ? stored : [];
+            } catch (e) {
+            }
+
+            let candidates = questionPool.map((_, i) => i).filter(i => !history.includes(i));
+            while (candidates.length < QUESTIONS_PER_TEST) {
+                history.shift();
+                candidates = questionPool.map((_, i) => i).filter(i => !history.includes(i));
+            }
+
+            const chosen = shuffle(candidates).slice(0, QUESTIONS_PER_TEST);
+            questions = chosen.map(i => questionPool[i]);
+
+            history.push(...chosen);
+            if (history.length > HISTORY_LIMIT) {
+                history = history.slice(-HISTORY_LIMIT);
+            }
+            try {
+                localStorage.setItem(QUESTION_HISTORY_KEY, JSON.stringify(history));
+            } catch (e) {
+            }
+
             questions.forEach(q => {
                 const correct = q.a[q.c];
                 q.a = shuffle([...q.a]);

@@ -211,8 +211,38 @@
 
         const lever = document.getElementById("lever");
         const factText = document.getElementById("fact-text");
+        const FACT_HISTORY_KEY = "funFactHistory";
+        const HISTORY_LIMIT = 50;
         let current = -1;
         let pulling = false;
+
+        function getHistory() {
+            try {
+                const stored = JSON.parse(localStorage.getItem(FACT_HISTORY_KEY));
+                return Array.isArray(stored) ? stored : [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function nextFactIndex() {
+            let history = getHistory();
+            let candidates = facts.map((_, i) => i).filter(i => !history.includes(i));
+            if (candidates.length === 0) {
+                history = [];
+                candidates = facts.map((_, i) => i);
+            }
+            const pick = candidates[Math.floor(Math.random() * candidates.length)];
+            history.push(pick);
+            if (history.length > HISTORY_LIMIT) {
+                history = history.slice(-HISTORY_LIMIT);
+            }
+            try {
+                localStorage.setItem(FACT_HISTORY_KEY, JSON.stringify(history));
+            } catch (e) {
+            }
+            return pick;
+        }
 
         lever.addEventListener("click", () => {
             if (pulling) return;
@@ -220,11 +250,7 @@
             lever.classList.add("pulled");
 
             setTimeout(() => {
-                let next;
-                do {
-                    next = Math.floor(Math.random() * facts.length);
-                } while (facts.length > 1 && next === current);
-                current = next;
+                current = nextFactIndex();
 
                 factText.style.opacity = 0;
                 setTimeout(() => {
