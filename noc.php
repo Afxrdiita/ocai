@@ -318,14 +318,6 @@ header("Cache-Control: no-cache, must-revalidate");
         .sidebar a.active.status-yellow { color: #ffd75a; }
         .sidebar a.active.status-green { color: #5aff8a; }
 
-        .sidebar-divider {
-            margin: 20px;
-            border-top: 1px solid rgba(0, 240, 255, 0.25);
-        }
-
-        .sidebar a.sidebar-jira { color: #ff00e6; font-weight: bold; }
-        .sidebar a.sidebar-jira:hover { color: #ff5af0; }
-
         .main {
             flex: 1;
             margin-left: 232px;
@@ -507,10 +499,6 @@ header("Cache-Control: no-cache, must-revalidate");
     <div class="refresh-timer">Refresh in<span class="seconds" id="refresh-countdown">30</span></div>
     <div class="layout">
         <div class="sidebar">
-            <h3>Summary</h3>
-            <a href="jira.php" class="sidebar-jira">&raquo; NOC Summary</a>
-
-            <div class="sidebar-divider"></div>
             <h3>Servers</h3>
             <?php foreach (SERVER_LIST as $name):
                 $statusClass = isset($hostStatus[$name]) ? " status-" . $hostStatus[$name] : "";
