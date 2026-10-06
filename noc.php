@@ -10,6 +10,10 @@ const SERVER_LIST = [
     "smknag01-us",
 ];
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
+const AI_URL = "https://api.privatemind.com/v1/chat/completions";
+const AI_MODEL = "reasoning";
+const AI_TOKEN_ENV = "AI_API_KEY";
+const AI_CACHE_TTL = 300;
 
 function getApiKey() {
     $key = getenv(THURUK_API_KEY_ENV);
@@ -51,6 +55,96 @@ function thrukGet($path) {
         return $data["data"];
     }
     return $data;
+}
+
+function aiRequest($prompt, $systemPrompt) {
+    $token = getenv(AI_TOKEN_ENV);
+    $payload = [
+        "model" => AI_MODEL,
+        "messages" => [
+            ["role" => "system", "content" => $systemPrompt],
+            ["role" => "user", "content" => $prompt],
+        ],
+        "temperature" => 0.15,
+        "max_tokens" => 3000,
+        "top_k" => 20,
+        "top_p" => 0.8,
+        "chat_template_kwargs" => ["enable_thinking" => false],
+        "repetition_penalty" => 1.00,
+        "stream" => false,
+    ];
+    $ch = curl_init(AI_URL);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 120,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode($payload),
+        CURLOPT_HTTPHEADER => [
+            "Accept: application/json",
+            "Content-Type: application/json",
+            "Authorization: Bearer " . $token,
+        ],
+    ]);
+    $body = curl_exec($ch);
+    if ($body === false) {
+        $error = curl_error($ch);
+        curl_close($ch);
+        throw new Exception("AI request failed: " . $error);
+    }
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($status !== 200) {
+        throw new Exception("AI returned HTTP " . $status);
+    }
+    $data = json_decode($body, true);
+    if (!isset($data["choices"][0]["message"]["content"])) {
+        throw new Exception("AI returned an unexpected response");
+    }
+    return $data["choices"][0]["message"]["content"];
+}
+
+function aiCacheDir() {
+    $dir = sys_get_temp_dir() . "/noc_ai_cache";
+    if (!is_dir($dir)) {
+        mkdir($dir, 0755, true);
+    }
+    return $dir;
+}
+
+function aiSummariseHost($hostName, $hostDetails, $services, $now) {
+    $latest = 0;
+    $lines = "HOST " . $hostName .
+        ": " . hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1)[0] .
+        " for " . formatDuration($now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now)) .
+        " (address " . (isset($hostDetails["address"]) ? $hostDetails["address"] : "-") .
+        ", check: " . substr(isset($hostDetails["plugin_output"]) ? $hostDetails["plugin_output"] : "", 0, 120) . ")\n";
+    foreach ($services as $s) {
+        $change = isset($s["last_state_change"]) ? $s["last_state_change"] : $now;
+        if ($change > $latest) {
+            $latest = $change;
+        }
+        $lines .= "  - " . (isset($s["description"]) ? $s["description"] : "?") .
+            ": " . serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[0] .
+            " for " . formatDuration($now - $change) .
+            " (" . substr(isset($s["plugin_output"]) ? $s["plugin_output"] : "", 0, 120) . ")\n";
+    }
+
+    $cacheFile = aiCacheDir() . "/hostsummary_" . md5($hostName) . "_" . md5($latest) . ".html";
+    if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < AI_CACHE_TTL) {
+        return file_get_contents($cacheFile);
+    }
+
+    $systemPrompt = "You are a NOC duty analyst talking to a non-technical client. " .
+        "Summarise the monitoring information for this server in a few simple sentences covering the most important points. " .
+        "Then clearly mention anything you recommend the user keeps a close eye on, and why. " .
+        "If everything is healthy, say so reassuringly. " .
+        "Important instructions: 1. Limit your response to a few short paragraphs. " .
+        "2. Format your output in HTML complete with URLs. " .
+        "3. Use language like you are a technical support person talking to a client.";
+    $summary = aiRequest($lines, $systemPrompt);
+    file_put_contents($cacheFile, $summary);
+    return $summary;
 }
 
 function formatDuration($seconds) {
@@ -246,9 +340,16 @@ try {
     }
 } catch (Exception $e) {
 }
-?>
-<?php
 $displayName = $selectedHost !== null ? $selectedHost : (isset($pageHost) ? $pageHost : DEFAULT_SERVER);
+if (isset($_GET["action"]) && $_GET["action"] === "summary" && $hostDetails !== null) {
+    header("Content-Type: application/json");
+    try {
+        echo json_encode(["success" => true, "summary" => aiSummariseHost($displayName, $hostDetails, $services, $now)]);
+    } catch (Exception $e) {
+        echo json_encode(["success" => false, "error" => $e->getMessage()]);
+    }
+    exit;
+}
 header("Cache-Control: no-cache, must-revalidate");
 ?>
 <!DOCTYPE html>
@@ -472,6 +573,137 @@ header("Cache-Control: no-cache, must-revalidate");
 
         .updated { text-align: center; color: #666; font-size: 12px; margin-top: 20px; }
 
+        .info-bubble {
+            position: fixed;
+            bottom: 30px;
+            left: 30px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: 2px solid #00f0ff;
+            background: rgba(0, 240, 255, 0.1);
+            color: #fff;
+            font-size: 28px;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.5);
+            z-index: 1000;
+            transition: box-shadow 0.2s, transform 0.2s;
+        }
+
+        .info-bubble:hover {
+            box-shadow: 0 0 30px #00f0ff;
+            transform: scale(1.08);
+        }
+
+        .popup-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .popup-overlay.open { display: flex; }
+
+        .popup-box {
+            width: 480px;
+            max-width: 92vw;
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 2px solid #00f0ff;
+            border-radius: 14px;
+            background: #0d0d1a;
+            box-shadow: 0 0 30px rgba(0, 240, 255, 0.5);
+            padding: 0 0 20px 0;
+        }
+
+        .popup-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.3);
+            color: #fff;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .popup-close-btn {
+            background: none;
+            border: none;
+            color: #ff5a5a;
+            font-size: 18px;
+            cursor: not-allowed;
+        }
+
+        .popup-content {
+            padding: 20px;
+            font-size: 14px;
+            line-height: 1.7;
+            color: #ddd;
+        }
+
+        .popup-content p { margin: 8px 0; }
+        .popup-content a { color: #00f0ff; }
+
+        .popup-captcha {
+            margin: 0 20px;
+            padding: 15px;
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            border-radius: 10px;
+            background: rgba(0, 240, 255, 0.04);
+        }
+
+        .popup-captcha-label {
+            color: #aaa;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+
+        .popup-captcha-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        #captcha-canvas {
+            border-radius: 6px;
+            border: 1px solid #555;
+            background: #111;
+        }
+
+        #captcha-input {
+            flex: 1;
+            background: #111;
+            border: 2px solid #555;
+            border-radius: 6px;
+            color: #fff;
+            padding: 8px 12px;
+            font-size: 14px;
+        }
+
+        #captcha-input:focus {
+            outline: none;
+            border-color: #00f0ff;
+        }
+
+        .captcha-close {
+            padding: 8px 18px;
+            background: rgba(255, 0, 230, 0.1);
+            border: 2px solid #ff00e6;
+            border-radius: 6px;
+            color: #fff;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .captcha-close:hover { box-shadow: 0 0 12px #ff00e6; }
+
+        .captcha-error { color: #ff5a5a; font-size: 12px; margin-top: 8px; min-height: 14px; }
+
         .refresh-timer {
             position: fixed;
             top: 20px;
@@ -584,6 +816,29 @@ header("Cache-Control: no-cache, must-revalidate");
         </div>
     </div>
 
+    <button class="info-bubble" id="info-bubble" title="Page summary">?</button>
+
+    <div class="popup-overlay" id="popup-overlay">
+        <div class="popup-box">
+            <div class="popup-header">
+                <span>Page Summary</span>
+                <button class="popup-close-btn" id="popup-close-btn" title="Close">&#10006;</button>
+            </div>
+            <div class="popup-content" id="popup-summary">
+                <p>Asking the AI to read the monitoring information, this may take a moment...</p>
+            </div>
+            <div class="popup-captcha">
+                <div class="popup-captcha-label">Prove you're not a robot to close this window:</div>
+                <div class="popup-captcha-row">
+                    <canvas id="captcha-canvas" width="140" height="44"></canvas>
+                    <input type="text" id="captcha-input" placeholder="Type the code" autocomplete="off">
+                    <button class="captcha-close" id="captcha-close">Close</button>
+                </div>
+                <div class="captcha-error" id="captcha-error"></div>
+            </div>
+        </div>
+    </div>
+
     <script>
         const tabDetails = document.getElementById("tab-details");
         const tabPlain = document.getElementById("tab-plain");
@@ -603,6 +858,117 @@ header("Cache-Control: no-cache, must-revalidate");
             tabDetails.addEventListener("click", () => setMode(false));
             tabPlain.addEventListener("click", () => setMode(true));
         }
+
+        const infoBubble = document.getElementById("info-bubble");
+        const popupOverlay = document.getElementById("popup-overlay");
+        const popupSummary = document.getElementById("popup-summary");
+        const popupCloseBtn = document.getElementById("popup-close-btn");
+        const captchaClose = document.getElementById("captcha-close");
+        const captchaCanvas = document.getElementById("captcha-canvas");
+        const captchaInput = document.getElementById("captcha-input");
+        const captchaError = document.getElementById("captcha-error");
+
+        let summaryRequested = false;
+        let captchaCode = "";
+
+        function playPing() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(830, ctx.currentTime);
+                osc.frequency.setValueAtTime(1244, ctx.currentTime + 0.08);
+                gain.gain.setValueAtTime(0.4, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.6);
+            } catch (e) {
+            }
+        }
+
+        function drawCaptcha() {
+            const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            captchaCode = "";
+            for (let i = 0; i < 5; i++) {
+                captchaCode += chars[Math.floor(Math.random() * chars.length)];
+            }
+            const ctx = captchaCanvas.getContext("2d");
+            ctx.clearRect(0, 0, captchaCanvas.width, captchaCanvas.height);
+            ctx.fillStyle = "#111";
+            ctx.fillRect(0, 0, captchaCanvas.width, captchaCanvas.height);
+            for (let i = 0; i < 6; i++) {
+                ctx.strokeStyle = "rgba(0,240,255," + (0.1 + Math.random() * 0.25) + ")";
+                ctx.beginPath();
+                ctx.moveTo(Math.random() * 140, Math.random() * 44);
+                ctx.lineTo(Math.random() * 140, Math.random() * 44);
+                ctx.stroke();
+            }
+            for (let i = 0; i < 30; i++) {
+                ctx.fillStyle = "rgba(255,255,255," + (Math.random() * 0.2) + ")";
+                ctx.fillRect(Math.random() * 140, Math.random() * 44, 2, 2);
+            }
+            for (let i = 0; i < captchaCode.length; i++) {
+                ctx.save();
+                ctx.translate(18 + i * 24, 28 + (Math.random() * 8 - 4));
+                ctx.rotate((Math.random() - 0.5) * 0.6);
+                ctx.font = "bold 26px Arial";
+                ctx.fillStyle = ["#00f0ff", "#ffd75a", "#5aff8a", "#ff5af0"][i % 4];
+                ctx.fillText(captchaCode[i], 0, 0);
+                ctx.restore();
+            }
+        }
+
+        function loadSummary() {
+            if (summaryRequested) return;
+            summaryRequested = true;
+            fetch("?action=summary")
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        popupSummary.innerHTML = data.summary;
+                    } else {
+                        popupSummary.innerHTML = "<p>Could not generate the summary: " + data.error + "</p>";
+                    }
+                })
+                .catch(() => {
+                    popupSummary.innerHTML = "<p>Could not generate the summary. Please try again later.</p>";
+                });
+        }
+
+        infoBubble.addEventListener("click", () => {
+            playPing();
+            popupOverlay.classList.add("open");
+            captchaInput.value = "";
+            captchaError.textContent = "";
+            drawCaptcha();
+            loadSummary();
+        });
+
+        popupCloseBtn.addEventListener("click", () => {
+            captchaError.textContent = "To close this window you must complete the captcha below.";
+            captchaInput.focus();
+        });
+
+        captchaClose.addEventListener("click", () => {
+            if (captchaInput.value.trim().toUpperCase() === captchaCode) {
+                popupOverlay.classList.remove("open");
+                captchaError.textContent = "";
+                summaryRequested = false;
+            } else {
+                captchaError.textContent = "Incorrect code, try again.";
+                captchaInput.value = "";
+                drawCaptcha();
+            }
+        });
+
+        captchaInput.addEventListener("keyup", (e) => {
+            if (e.key === "Enter") {
+                captchaClose.click();
+            }
+        });
 
         const REFRESH_SECONDS = 30;
         let remaining = REFRESH_SECONDS;
