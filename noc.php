@@ -66,6 +66,97 @@ function serviceStateLabel($state) {
     }
 }
 
+function plainServiceName($service) {
+    $s = strtolower($service);
+    $map = [
+        "cpu" => "How hard the computer is working",
+        "load" => "How busy the computer is",
+        "memory" => "Available short-term memory",
+        "ram" => "Available short-term memory",
+        "swap" => "Backup memory usage",
+        "disk" => "Storage space",
+        "disk /" => "Main storage space",
+        "space" => "Storage space",
+        "inode" => "Storage bookkeeping space",
+        "ping" => "Network reachability",
+        "http" => "Website availability",
+        "https" => "Secure website availability",
+        "zombie" => "Stuck programs",
+        "process" => "Running programs",
+        "service" => "A background program",
+        "ntp" => "Clock accuracy",
+        "time" => "Clock accuracy",
+        "user" => "Signed-in people",
+        "ssh" => "Remote access",
+        "smtp" => "Email sending",
+        "mail" => "Email",
+        "ldap" => "Directory sign-in",
+        "dns" => "Name lookup",
+        "log" => "Event records",
+        "backup" => "Backup copies",
+        "temp" => "Temperature",
+        "fan" => "Cooling fans",
+        "power" => "Power supply",
+        "raid" => "Redundant storage",
+        "mysql" => "Database",
+        "sql" => "Database",
+        "agent" => "Monitoring agent",
+    ];
+    foreach ($map as $needle => $plain) {
+        if (strpos($s, $needle) !== false) {
+            return $plain;
+        }
+    }
+    return $service;
+}
+
+function plainEnglish($service, $output, $state) {
+    $parts = [];
+    $name = plainServiceName($service);
+
+    switch ((int)$state) {
+        case 0: $parts[] = "Everything looks fine with the " . strtolower($name) . "."; break;
+        case 1: $parts[] = "The " . strtolower($name) . " needs attention — it's close to a limit."; break;
+        case 2: $parts[] = "There is a problem with the " . strtolower($name) . " that needs fixing."; break;
+        default: $parts[] = "We could not check the " . strtolower($name) . " right now."; break;
+    }
+
+    $o = strtolower($output);
+    if (preg_match_all("/(\d+(?:\.\d+)?)\s*%/", $output, $m)) {
+        $pcts = array_map("floatval", $m[1]);
+        $max = max($pcts);
+        if (strpos($o, "packet loss") !== false && $max == 0) {
+            $parts[] = "The connection is perfect with no dropped signals.";
+        } elseif ($max >= 90) {
+            $parts[] = "It is " . round($max) . "% of the way used, which is dangerously full.";
+        } elseif ($max >= 75) {
+            $parts[] = "It is " . round($max) . "% of the way used, which is getting close to full.";
+        } else {
+            $parts[] = "It is " . round($max) . "% of the way used.";
+        }
+    }
+    if (strpos($o, "timeout") !== false || strpos($o, "timed out") !== false) {
+        $parts[] = "The check took too long to get an answer.";
+    }
+    if (strpos($o, "refused") !== false) {
+        $parts[] = "The connection was turned away.";
+    }
+    if (strpos($o, "unreachable") !== false || strpos($o, "down") !== false) {
+        $parts[] = "The server could not be reached.";
+    }
+    if (strpos($o, "zombie") !== false) {
+        $parts[] = "Some programs have stopped responding and are stuck.";
+    }
+    if (preg_match("/(\d+(?:\.\d+)?)\s*(?:days?|d)\b/i", $o)) {
+        $parts[] = "This has been going on for a while.";
+    }
+
+    if (count($parts) === 1) {
+        $parts[] = "No further explanation is needed.";
+    }
+    return implode(" ", $parts);
+}
+
 $error = null;
 $hostDetails = null;
 $services = [];
@@ -206,6 +297,34 @@ try {
 
         .svc { color: #00f0ff; font-weight: bold; }
         .output { color: #bbb; font-size: 13px; }
+        .output .plain { display: none; color: #ccc; }
+        .output.plain-mode .tech { display: none; }
+        .output.plain-mode .plain { display: inline; }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .tab {
+            padding: 10px 25px;
+            border: 2px solid #555;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.03);
+            color: #aaa;
+            font-size: 14px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s, box-shadow 0.2s;
+        }
+
+        .tab.active {
+            border-color: #00f0ff;
+            color: #fff;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+        }
 
         .error-box {
             border: 2px solid #ff5a5a;
@@ -251,6 +370,11 @@ try {
                 <div class="summary-item unknown"><div class="count"><?php echo $counts["unknown"]; ?></div><div class="label">Unknown</div></div>
             </div>
 
+            <div class="tabs">
+                <button class="tab active" id="tab-details">Details</button>
+                <button class="tab" id="tab-plain">Plain English</button>
+            </div>
+
             <table>
                 <thead>
                     <tr>
@@ -258,20 +382,26 @@ try {
                         <th>Service</th>
                         <th>Status</th>
                         <th>Duration</th>
-                        <th>Details</th>
+                        <th id="details-header">Details</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($services as $s):
                         list($label, $class) = serviceStateLabel(isset($s["state"]) ? $s["state"] : -1);
                         $duration = $now - (isset($s["last_state_change"]) ? $s["last_state_change"] : $now);
+                        $svcName = isset($s["description"]) ? $s["description"] : "?";
+                        $svcOutput = isset($s["plugin_output"]) ? $s["plugin_output"] : "";
+                        $plain = plainEnglish($svcName, $svcOutput, isset($s["state"]) ? $s["state"] : -1);
                     ?>
                     <tr class="<?php echo $class; ?>">
                         <td class="duration"><?php echo formatDuration($duration); ?></td>
-                        <td class="svc"><?php echo htmlspecialchars(isset($s["description"]) ? $s["description"] : "?"); ?></td>
+                        <td class="svc"><?php echo htmlspecialchars($svcName); ?></td>
                         <td><span class="badge <?php echo $class; ?>"><?php echo $label; ?></span></td>
                         <td class="duration"><?php echo formatDuration($duration); ?></td>
-                        <td class="output"><?php echo htmlspecialchars(isset($s["plugin_output"]) ? $s["plugin_output"] : ""); ?></td>
+                        <td class="output">
+                            <span class="tech"><?php echo htmlspecialchars($svcOutput); ?></span>
+                            <span class="plain"><?php echo htmlspecialchars($plain); ?></span>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -280,5 +410,24 @@ try {
 
         <div class="updated">Auto-refreshes every 30 seconds &middot; Last updated <?php echo date("H:i:s"); ?></div>
     </div>
+
+    <script>
+        const tabDetails = document.getElementById("tab-details");
+        const tabPlain = document.getElementById("tab-plain");
+        const detailsHeader = document.getElementById("details-header");
+        const outputs = document.querySelectorAll(".output");
+
+        function setMode(plain) {
+            outputs.forEach(el => el.classList.toggle("plain-mode", plain));
+            tabDetails.classList.toggle("active", !plain);
+            tabPlain.classList.toggle("active", plain);
+            if (detailsHeader) {
+                detailsHeader.textContent = plain ? "Plain English" : "Details";
+            }
+        }
+
+        tabDetails.addEventListener("click", () => setMode(false));
+        tabPlain.addEventListener("click", () => setMode(true));
+    </script>
 </body>
 </html>
