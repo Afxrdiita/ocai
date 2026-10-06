@@ -166,13 +166,19 @@ function plainEnglish($service, $output, $state) {
 }
 
 $error = null;
-$selectedHost = isset($_GET["host"]) ? $_GET["host"] : "";
-if (!in_array($selectedHost, SERVER_LIST, true)) {
-    $selectedHost = DEFAULT_SERVER;
+$selectedHost = "";
+if (isset($pageHost) && in_array($pageHost, SERVER_LIST, true)) {
+    $selectedHost = $pageHost;
+} else {
+    $selectedHost = isset($_GET["host"]) ? $_GET["host"] : "";
+    if (!in_array($selectedHost, SERVER_LIST, true)) {
+        $selectedHost = DEFAULT_SERVER;
+    }
 }
 $hostDetails = null;
 $services = [];
 $counts = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
+$hostStatus = [];
 $now = time();
 
 try {
@@ -186,6 +192,40 @@ try {
     }
 } catch (Exception $e) {
     $error = $e->getMessage();
+}
+
+try {
+    $nameRegex = "^(" . implode("|", array_map("preg_quote", SERVER_LIST)) . ")$";
+    $allServices = thrukGet("services?columns=host_name,state&host_name[regex]=" . urlencode($nameRegex));
+    foreach ($allServices as $row) {
+        $h = isset($row["host_name"]) ? $row["host_name"] : "";
+        if (!in_array($h, SERVER_LIST, true)) {
+            continue;
+        }
+        if (!isset($hostStatus[$h])) {
+            $hostStatus[$h] = "green";
+        }
+        $st = (int)(isset($row["state"]) ? $row["state"] : -1);
+        if ($st === 2) {
+            $hostStatus[$h] = "red";
+        } elseif ($st === 1 || $st === 3) {
+            if ($hostStatus[$h] !== "red") {
+                $hostStatus[$h] = "yellow";
+            }
+        }
+    }
+    $allHosts = thrukGet("hosts?columns=name,state&name[regex]=" . urlencode($nameRegex));
+    foreach ($allHosts as $row) {
+        $h = isset($row["name"]) ? $row["name"] : "";
+        if (!in_array($h, SERVER_LIST, true)) {
+            continue;
+        }
+        $st = (int)(isset($row["state"]) ? $row["state"] : -1);
+        if ($st === 1 || $st === 2) {
+            $hostStatus[$h] = "red";
+        }
+    }
+} catch (Exception $e) {
 }
 ?>
 <!DOCTYPE html>
@@ -247,6 +287,13 @@ try {
             border-left: 3px solid #00f0ff;
             box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.15);
         }
+
+        .sidebar a.status-red { color: #ff5a5a; }
+        .sidebar a.status-yellow { color: #ffd75a; }
+        .sidebar a.status-green { color: #5aff8a; }
+        .sidebar a.active.status-red { color: #ff5a5a; }
+        .sidebar a.active.status-yellow { color: #ffd75a; }
+        .sidebar a.active.status-green { color: #5aff8a; }
 
         .main {
             flex: 1;
@@ -430,9 +477,11 @@ try {
     <div class="layout">
         <div class="sidebar">
             <h3>Servers</h3>
-            <?php foreach (SERVER_LIST as $name): ?>
-                <a href="noc.php?host=<?php echo urlencode($name); ?>"
-                   class="<?php echo $name === $selectedHost ? "active" : ""; ?>">
+            <?php foreach (SERVER_LIST as $name):
+                $statusClass = isset($hostStatus[$name]) ? " status-" . $hostStatus[$name] : "";
+            ?>
+                <a href="<?php echo htmlspecialchars($name); ?>.php"
+                   class="<?php echo ($name === $selectedHost ? "active " : "") . $statusClass; ?>">
                     <?php echo htmlspecialchars($name); ?>
                 </a>
             <?php endforeach; ?>
