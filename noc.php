@@ -49,7 +49,15 @@ function formatDuration($seconds) {
     return $minutes . "m";
 }
 
-function stateLabel($state) {
+function stateLabel($state, $isHost = false) {
+    if ($isHost) {
+        switch ((int)$state) {
+            case 0: return ["UP", "ok"];
+            case 1: return ["DOWN", "crit"];
+            case 2: return ["UNREACHABLE", "crit"];
+            default: return ["UNKNOWN", "unknown"];
+        }
+    }
     switch ((int)$state) {
         case 0: return ["OK", "ok"];
         case 1: return ["WARNING", "warn"];
@@ -60,7 +68,8 @@ function stateLabel($state) {
 
 function fetchRows() {
     $rows = [];
-    $hosts = thrukGet("hosts?hostgroups=" . urlencode(THURUK_HOSTGROUP));
+    $hg = urlencode(THURUK_HOSTGROUP);
+    $hosts = thrukGet("hosts?columns=name,state,last_state_change,plugin_output&groups[gte]=" . $hg);
     foreach ($hosts as $h) {
         $rows[] = [
             "type" => "host",
@@ -71,7 +80,7 @@ function fetchRows() {
             "output" => isset($h["plugin_output"]) ? $h["plugin_output"] : "",
         ];
     }
-    $services = thrukGet("services?hostgroups=" . urlencode(THURUK_HOSTGROUP));
+    $services = thrukGet("services?columns=host_name,description,state,last_state_change,plugin_output&hostgroups[gte]=" . $hg);
     foreach ($services as $s) {
         $rows[] = [
             "type" => "service",
@@ -83,9 +92,7 @@ function fetchRows() {
         ];
     }
     usort($rows, function ($a, $b) {
-        $db = $b["last_state_change"];
-        $da = $a["last_state_change"];
-        return $db <=> $da;
+        return $b["last_state_change"] <=> $a["last_state_change"];
     });
     return array_slice($rows, 0, MAX_ITEMS);
 }
@@ -97,7 +104,7 @@ $counts = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
 try {
     $rows = fetchRows();
     foreach ($rows as $r) {
-        $counts[stateLabel($r["state"])[1]]++;
+        $counts[stateLabel($r["state"], $r["type"] === "host")[1]]++;
     }
 } catch (Exception $e) {
     $error = $e->getMessage();
@@ -250,7 +257,7 @@ $now = time();
                 </thead>
                 <tbody>
                     <?php foreach ($rows as $r):
-                        list($label, $class) = stateLabel($r["state"]);
+                        list($label, $class) = stateLabel($r["state"], $r["type"] === "host");
                         $duration = $now - $r["last_state_change"];
                     ?>
                     <tr class="<?php echo $class; ?>">
