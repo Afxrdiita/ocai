@@ -166,15 +166,25 @@ function plainEnglish($service, $output, $state) {
 }
 
 $error = null;
-$selectedHost = "";
-if (isset($pageHost) && in_array($pageHost, SERVER_LIST, true)) {
-    $selectedHost = $pageHost;
-} else {
-    $selectedHost = isset($_GET["host"]) ? $_GET["host"] : "";
-    if (!in_array($selectedHost, SERVER_LIST, true)) {
-        $selectedHost = DEFAULT_SERVER;
+$pageError = null;
+$selectedHost = null;
+
+if (isset($pageHost)) {
+    if (in_array($pageHost, SERVER_LIST, true)) {
+        $selectedHost = $pageHost;
+    } else {
+        $pageError = "'" . $pageHost . "' is not in the configured server list.";
     }
+} elseif (isset($_GET["host"])) {
+    if (in_array($_GET["host"], SERVER_LIST, true)) {
+        $selectedHost = $_GET["host"];
+    } else {
+        $pageError = "Unknown host '" . htmlspecialchars($_GET["host"]) . "'.";
+    }
+} else {
+    $selectedHost = DEFAULT_SERVER;
 }
+
 $hostDetails = null;
 $services = [];
 $counts = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
@@ -182,13 +192,15 @@ $hostStatus = [];
 $now = time();
 
 try {
-    $details = thrukGet("hosts?columns=name,address,state,plugin_output,last_state_change&name=" . urlencode($selectedHost));
-    if (count($details) > 0) {
-        $hostDetails = $details[0];
-    }
-    $services = thrukGet("services?columns=description,state,last_state_change,plugin_output&host_name=" . urlencode($selectedHost) . "&sort=-last_state_change");
-    foreach ($services as $s) {
-        $counts[serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[1]]++;
+    if ($selectedHost !== null) {
+        $details = thrukGet("hosts?columns=name,address,state,plugin_output,last_state_change&name=" . urlencode($selectedHost));
+        if (count($details) > 0) {
+            $hostDetails = $details[0];
+        }
+        $services = thrukGet("services?columns=description,state,last_state_change,plugin_output&host_name=" . urlencode($selectedHost) . "&sort=-last_state_change");
+        foreach ($services as $s) {
+            $counts[serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[1]]++;
+        }
     }
 } catch (Exception $e) {
     $error = $e->getMessage();
@@ -228,12 +240,16 @@ try {
 } catch (Exception $e) {
 }
 ?>
+<?php
+$displayName = $selectedHost !== null ? $selectedHost : (isset($pageHost) ? $pageHost : DEFAULT_SERVER);
+header("Cache-Control: no-cache, must-revalidate");
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo htmlspecialchars($selectedHost); ?> Monitoring</title>
+    <title><?php echo htmlspecialchars($displayName); ?> Monitoring</title>
     <style>
         body {
             margin: 0;
@@ -489,12 +505,14 @@ try {
 
         <div class="main">
             <div class="container">
-                <h1><?php echo htmlspecialchars($selectedHost); ?> Dashboard</h1>
+                <h1><?php echo htmlspecialchars($displayName); ?> Dashboard</h1>
 
-                <?php if ($error): ?>
+                <?php if ($pageError): ?>
+                    <div class="error-box"><?php echo $pageError; ?></div>
+                <?php elseif ($error): ?>
                     <div class="error-box"><?php echo htmlspecialchars($error); ?></div>
                 <?php elseif (!$hostDetails): ?>
-                    <div class="error-box">No monitoring data found for '<?php echo htmlspecialchars($selectedHost); ?>'.</div>
+                    <div class="error-box">No monitoring data found for '<?php echo htmlspecialchars($displayName); ?>'.</div>
         <?php else:
             list($hostLabel, $hostClass) = hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1);
             $hostDuration = $now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now);

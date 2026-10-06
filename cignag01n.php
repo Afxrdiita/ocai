@@ -1,3 +1,3 @@
 <?php
 $pageHost = "cignag01n";
-include "noc.php";
+include __DIR__ . "/noc.php";
