@@ -698,32 +698,9 @@ header("Cache-Control: no-cache, must-revalidate");
         .captcha-close:hover { box-shadow: 0 0 12px #ff00e6; }
 
         .captcha-error { color: #ff5a5a; font-size: 12px; margin-top: 8px; min-height: 14px; }
-
-        .refresh-timer {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            border: 2px solid #00f0ff;
-            border-radius: 10px;
-            padding: 8px 16px;
-            background: rgba(0, 240, 255, 0.07);
-            box-shadow: 0 0 10px rgba(0, 240, 255, 0.35);
-            color: #aaa;
-            font-size: 13px;
-            letter-spacing: 1px;
-        }
-
-        .refresh-timer .seconds {
-            color: #fff;
-            font-size: 18px;
-            font-weight: 900;
-            margin-left: 6px;
-            text-shadow: 0 0 8px #00f0ff;
-        }
     </style>
 </head>
 <body>
-    <div class="refresh-timer">Refresh in<span class="seconds" id="refresh-countdown">30</span></div>
     <div class="layout">
         <div class="sidebar">
             <h3>Servers</h3>
@@ -806,7 +783,7 @@ header("Cache-Control: no-cache, must-revalidate");
             </table>
             <?php endif; ?>
 
-                <div class="updated">Auto-refreshes every 30 seconds &middot; Last updated <?php echo date("H:i:s"); ?></div>
+                <div class="updated">Last updated <?php echo date("H:i:s"); ?></div>
             </div>
         </div>
     </div>
@@ -973,20 +950,8 @@ header("Cache-Control: no-cache, must-revalidate");
         captchaInput.addEventListener("keyup", (e) => {
             if (e.key === "Enter") {
                 captchaClose.click();
-            }
+             }
         });
-
-        const REFRESH_SECONDS = 30;
-        let remaining = REFRESH_SECONDS;
-        const countdownEl = document.getElementById("refresh-countdown");
-
-        setInterval(() => {
-            remaining--;
-            if (remaining <= 0) {
-                location.reload();
-            }
-            countdownEl.textContent = remaining;
-        }, 1000);
     </script>
 </body>
 </html>
