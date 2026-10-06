@@ -68,7 +68,7 @@ if (!$cached) {
             $hostStatus[$name] = "green";
         }
 
-        $allServices = thrukGet("services?columns=host_name,state");
+        $allServices = thrukGet("services?columns=host_name,state&state[gte]=1");
         foreach ($allServices as $row) {
             $h = isset($row["host_name"]) ? $row["host_name"] : "";
             if (!in_array($h, $serverList, true)) {
