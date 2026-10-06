@@ -4,7 +4,7 @@ const AI_MODEL = "reasoning";
 const AI_TOKEN_ENV = "AI_API_KEY";
 const NOC_CACHE_TTL = 300;
 
-const THURUK_BASE_URL = "https://monitoring-dr.options-it.com/thruk";
+const THURUK_BASE_URL = "https://localhost/thruk";
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
 const SERVER_LIST = [
     "yinnag01e",

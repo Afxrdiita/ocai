@@ -1,5 +1,5 @@
 <?php
-const THURUK_BASE_URL = "https://monitoring-dr.options-it.com/thruk";
+const THURUK_BASE_URL = "https://localhost/thruk";
 const DEFAULT_SERVER = "yinnag01e";
 const SERVER_LIST = [
     "yinnag01e",
