@@ -500,6 +500,10 @@ header("Cache-Control: no-cache, must-revalidate");
     <div class="refresh-timer">Refresh in<span class="seconds" id="refresh-countdown">30</span></div>
     <div class="layout">
         <div class="sidebar">
+            <h3>Summary</h3>
+            <a href="jira.php" class="sidebar-jira">&raquo; Disruption Tracker</a>
+
+            <div class="sidebar-divider"></div>
             <h3>Servers</h3>
             <?php foreach (SERVER_LIST as $name):
                 $statusClass = isset($hostStatus[$name]) ? " status-" . $hostStatus[$name] : "";
@@ -509,9 +513,6 @@ header("Cache-Control: no-cache, must-revalidate");
                     <?php echo htmlspecialchars($name); ?>
                 </a>
             <?php endforeach; ?>
-
-            <div class="sidebar-divider"></div>
-            <a href="jira.php" class="sidebar-jira">&raquo; Disruption Tracker</a>
         </div>
 
         <div class="main">

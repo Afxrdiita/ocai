@@ -420,6 +420,19 @@ function statusClass($status) {
         .sidebar a.status-yellow { color: #ffd75a; }
         .sidebar a.status-green { color: #5aff8a; }
 
+        .sidebar-divider {
+            margin: 20px;
+            border-top: 1px solid rgba(0, 240, 255, 0.25);
+        }
+
+        .sidebar a.sidebar-jira { color: #ff00e6; font-weight: bold; }
+        .sidebar a.sidebar-jira:hover { color: #ff5af0; }
+        .sidebar a.sidebar-jira.active {
+            background: rgba(255, 0, 230, 0.12);
+            border-left: 3px solid #ff00e6;
+            box-shadow: inset 0 0 15px rgba(255, 0, 230, 0.15);
+        }
+
         .main {
             flex: 1;
             margin-left: 232px;
@@ -524,6 +537,10 @@ function statusClass($status) {
 <body>
     <div class="layout">
         <div class="sidebar">
+            <h3>Summary</h3>
+            <a href="jira.php" class="sidebar-jira active">&raquo; Disruption Tracker</a>
+
+            <div class="sidebar-divider"></div>
             <h3>Servers</h3>
             <?php foreach (SERVER_LIST as $name):
                 $statusClassSidebar = isset($hostStatus[$name]) ? " status-" . $hostStatus[$name] : "";
