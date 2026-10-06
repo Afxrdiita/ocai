@@ -1,14 +1,6 @@
 <?php
 const THURUK_BASE_URL = "https://localhost/thruk";
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
-const SERVER_LIST = [
-    "yinnag01e",
-    "cibnag01n",
-    "wtsnag01nye",
-    "stcnag01-uk",
-    "symnag01-uk",
-    "smknag01-us",
-];
 
 function getApiKey() {
     $key = getenv(THURUK_API_KEY_ENV);
@@ -48,17 +40,26 @@ function thrukGet($path) {
 
 $hostStatus = [];
 $nocError = null;
+$serverList = [];
 
 try {
-    $nameRegex = "^(" . implode("|", array_map("preg_quote", SERVER_LIST)) . ")$";
-    $allServices = thrukGet("services?columns=host_name,state&host_name[regex]=" . urlencode($nameRegex));
+    $allHosts = thrukGet("hosts?columns=name&sort=name");
+    foreach ($allHosts as $h) {
+        if (isset($h["name"]) && $h["name"] !== "") {
+            $serverList[] = $h["name"];
+        }
+    }
+    $serverList = array_values(array_unique($serverList));
+
+    foreach ($serverList as $name) {
+        $hostStatus[$name] = "green";
+    }
+
+    $allServices = thrukGet("services?columns=host_name,state");
     foreach ($allServices as $row) {
         $h = isset($row["host_name"]) ? $row["host_name"] : "";
-        if (!in_array($h, SERVER_LIST, true)) {
+        if (!in_array($h, $serverList, true)) {
             continue;
-        }
-        if (!isset($hostStatus[$h])) {
-            $hostStatus[$h] = "green";
         }
         $st = (int)(isset($row["state"]) ? $row["state"] : -1);
         if ($st === 2) {
@@ -69,10 +70,11 @@ try {
             }
         }
     }
-    $allHosts = thrukGet("hosts?columns=name,state&name[regex]=" . urlencode($nameRegex));
-    foreach ($allHosts as $row) {
+
+    $hostStates = thrukGet("hosts?columns=name,state");
+    foreach ($hostStates as $row) {
         $h = isset($row["name"]) ? $row["name"] : "";
-        if (!in_array($h, SERVER_LIST, true)) {
+        if (!in_array($h, $serverList, true)) {
             continue;
         }
         $st = (int)(isset($row["state"]) ? $row["state"] : -1);
@@ -195,10 +197,10 @@ try {
 
         <h2 class="section">Server Dashboards</h2>
         <div class="link-list">
-            <?php foreach (SERVER_LIST as $name):
+            <?php foreach ($serverList as $name):
                 $dotClass = isset($hostStatus[$name]) ? " " . $hostStatus[$name] : "";
             ?>
-                <a class="link-item" href="<?php echo htmlspecialchars($name); ?>.php">
+                <a class="link-item" href="dashboard.php?host=<?php echo urlencode($name); ?>">
                     <span class="dot<?php echo $dotClass; ?>"></span>
                     <?php echo htmlspecialchars($name); ?>
                     <span class="desc">Monitoring dashboard</span>
