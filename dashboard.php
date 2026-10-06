@@ -836,7 +836,9 @@ header("Cache-Control: no-cache, must-revalidate");
             if (summaryRequested) return;
             summaryRequested = true;
             popupSummary.innerHTML = "<p>Building the summary from the page information...</p>";
-            fetch("?action=summary")
+            const summaryParams = new URLSearchParams(window.location.search);
+            summaryParams.set("action", "summary");
+            fetch("?" + summaryParams.toString())
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
