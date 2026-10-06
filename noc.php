@@ -10,10 +10,6 @@ const SERVER_LIST = [
     "smknag01-us",
 ];
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
-const AI_URL = "https://api.privatemind.com/v1/chat/completions";
-const AI_MODEL = "reasoning";
-const AI_TOKEN_ENV = "AI_API_KEY";
-const AI_CACHE_TTL = 300;
 
 function getApiKey() {
     $key = getenv(THURUK_API_KEY_ENV);
@@ -57,106 +53,76 @@ function thrukGet($path) {
     return $data;
 }
 
-function aiRequest($prompt, $systemPrompt) {
-    $token = getenv(AI_TOKEN_ENV);
-    if (!$token) {
-        throw new Exception("The AI_API_KEY environment variable is not set on the server, so the AI summary cannot run. Set it and restart Apache/PHP.");
-    }
-    $payload = [
-        "model" => AI_MODEL,
-        "messages" => [
-            ["role" => "system", "content" => $systemPrompt],
-            ["role" => "user", "content" => $prompt],
-        ],
-        "temperature" => 0.15,
-        "max_tokens" => 3000,
-        "top_k" => 20,
-        "top_p" => 0.8,
-        "chat_template_kwargs" => ["enable_thinking" => false],
-        "repetition_penalty" => 1.00,
-        "stream" => false,
-    ];
-    $ch = curl_init(AI_URL);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CONNECTTIMEOUT => 15,
-        CURLOPT_TIMEOUT => 120,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($payload),
-        CURLOPT_HTTPHEADER => [
-            "Accept: application/json",
-            "Content-Type: application/json",
-            "Authorization: Bearer " . $token,
-        ],
-    ]);
-    $body = curl_exec($ch);
-    if ($body === false) {
-        $error = curl_error($ch);
-        curl_close($ch);
-        throw new Exception("AI request failed: " . $error);
-    }
-    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    if ($status !== 200) {
-        throw new Exception("AI returned HTTP " . $status);
-    }
-    $data = json_decode($body, true);
-    if (!isset($data["choices"][0]["message"]["content"])) {
-        throw new Exception("AI returned an unexpected response");
-    }
-    return $data["choices"][0]["message"]["content"];
-}
+function buildHostSummary($hostName, $hostDetails, $services, $now) {
+    list($hostLabel, $hostClass) = hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1);
+    $hostDuration = $now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now);
 
-function aiCacheDir() {
-    $dir = sys_get_temp_dir() . "/noc_ai_cache";
-    if (!is_dir($dir)) {
-        mkdir($dir, 0755, true);
-    }
-    return $dir;
-}
-
-function aiSummariseHost($hostName, $hostDetails, $services, $now) {
-    $latest = 0;
-    $counts = ["OK" => 0, "WARNING" => 0, "CRITICAL" => 0, "UNKNOWN" => 0];
-    $lines = "This monitoring dashboard page shows the following details.\n\n";
-    $lines .= "HOST: " . $hostName . "\n";
-    $lines .= "  - Status: " . hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1)[0] .
-        " for " . formatDuration($now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now)) . "\n";
-    $lines .= "  - Address: " . (isset($hostDetails["address"]) ? $hostDetails["address"] : "-") . "\n";
-    $lines .= "  - Host check output: " . substr(isset($hostDetails["plugin_output"]) ? $hostDetails["plugin_output"] : "", 0, 200) . "\n";
-    $lines .= "\nSERVICES on this page:\n";
+    $counts = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
+    $problems = [];
     foreach ($services as $s) {
-        $change = isset($s["last_state_change"]) ? $s["last_state_change"] : $now;
-        if ($change > $latest) {
-            $latest = $change;
+        list($label, $class) = serviceStateLabel(isset($s["state"]) ? $s["state"] : -1);
+        $counts[$class]++;
+        if ($class !== "ok") {
+            $change = isset($s["last_state_change"]) ? $s["last_state_change"] : $now;
+            $problems[] = [
+                "description" => isset($s["description"]) ? $s["description"] : "?",
+                "label" => $label,
+                "class" => $class,
+                "duration" => $now - $change,
+            ];
         }
-        $label = serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[0];
-        $counts[$label]++;
-        $lines .= "  - " . (isset($s["description"]) ? $s["description"] : "?") .
-            ": " . $label .
-            " for " . formatDuration($now - $change) .
-            " | details: " . substr(isset($s["plugin_output"]) ? $s["plugin_output"] : "", 0, 200) . "\n";
     }
-    $lines .= "\nService totals: " . $counts["OK"] . " OK, " . $counts["WARNING"] . " warning, " .
-        $counts["CRITICAL"] . " critical, " . $counts["UNKNOWN"] . " unknown.\n";
-    $lines .= "Services are listed on the page in order of urgency (longest time in their current state first).\n";
+    usort($problems, function ($a, $b) {
+        return $b["duration"] <=> $a["duration"];
+    });
 
-    $cacheFile = aiCacheDir() . "/hostsummary_" . md5($hostName) . "_" . md5($latest) . ".html";
-    if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < AI_CACHE_TTL) {
-        return file_get_contents($cacheFile);
+    $html = "<p><strong>" . htmlspecialchars($hostName) . "</strong> is currently <strong>" . $hostLabel . "</strong> " .
+        "and has been for " . formatDuration($hostDuration) .
+        " (address " . htmlspecialchars(isset($hostDetails["address"]) ? $hostDetails["address"] : "-") . ").</p>";
+
+    $total = count($services);
+    $html .= "<p>It is running " . $total . " check" . ($total === 1 ? "" : "s") . ": " .
+        $counts["ok"] . " OK" .
+        ($counts["warn"] > 0 ? ", " . $counts["warn"] . " in warning" : "") .
+        ($counts["crit"] > 0 ? ", " . $counts["crit"] . " critical" : "") .
+        ($counts["unknown"] > 0 ? ", " . $counts["unknown"] . " unknown" : "") .
+        ".</p>";
+
+    if (count($problems) > 0) {
+        $html .= "<p><strong>Things needing attention right now:</strong></p><ul>";
+        foreach ($problems as $p) {
+            $plain = plainServiceName($p["description"]);
+            $html .= "<li>The " . htmlspecialchars(strtolower($plain)) .
+                " (" . htmlspecialchars($p["description"]) . ") has been " . $p["label"] .
+                " for " . formatDuration($p["duration"]) . ".</li>";
+        }
+        $html .= "</ul>";
+
+        $watch = [];
+        foreach ($problems as $p) {
+            if ($p["class"] === "crit") {
+                $watch[] = htmlspecialchars($p["description"]) . " (critical for " . formatDuration($p["duration"]) . ")";
+            }
+        }
+        if (count($watch) > 0) {
+            $html .= "<p><strong>Keep a close eye on:</strong> " . implode(", ", $watch) .
+                ". These are the most serious items and have been running the longest in a bad state.</p>";
+        } else {
+            $warnList = [];
+            foreach ($problems as $p) {
+                if ($p["class"] !== "crit") {
+                    $warnList[] = htmlspecialchars($p["description"]) . " (" . strtolower($p["label"]) . " for " . formatDuration($p["duration"]) . ")";
+                }
+            }
+            $html .= "<p><strong>Keep a close eye on:</strong> " . implode(", ", $warnList) .
+                ". Nothing is critical yet, but these are drifting away from normal and could get worse.</p>";
+        }
+    } else {
+        $html .= "<p>Everything looks healthy right now — there is nothing needing attention, and no close monitoring is required. " .
+            "The page will keep checking automatically every 30 seconds.</p>";
     }
 
-    $systemPrompt = "You are a NOC duty analyst talking to a non-technical client. " .
-        "Explain everything shown on this monitoring page: the host's overall status, each notable service check, how long things have been in their current state, and what the outputs mean. " .
-        "Cover all the details on the page, not just the problems. " .
-        "Then clearly mention anything you recommend the user keeps a close eye on, and why. " .
-        "If everything is healthy, say so reassuringly. " .
-        "Important instructions: 1. Limit your response to a few short paragraphs. " .
-        "2. Format your output in HTML complete with URLs. " .
-        "3. Use language like you are a technical support person talking to a client.";
-    $summary = aiRequest($lines, $systemPrompt);
-    file_put_contents($cacheFile, $summary);
-    return $summary;
+    return $html;
 }
 
 function formatDuration($seconds) {
@@ -355,11 +321,7 @@ try {
 $displayName = $selectedHost !== null ? $selectedHost : (isset($pageHost) ? $pageHost : DEFAULT_SERVER);
 if (isset($_GET["action"]) && $_GET["action"] === "summary" && $hostDetails !== null) {
     header("Content-Type: application/json");
-    try {
-        echo json_encode(["success" => true, "summary" => aiSummariseHost($displayName, $hostDetails, $services, $now)]);
-    } catch (Exception $e) {
-        echo json_encode(["success" => false, "error" => $e->getMessage()]);
-    }
+    echo json_encode(["success" => true, "summary" => buildHostSummary($displayName, $hostDetails, $services, $now)]);
     exit;
 }
 header("Cache-Control: no-cache, must-revalidate");
@@ -837,7 +799,7 @@ header("Cache-Control: no-cache, must-revalidate");
                 <button class="popup-close-btn" id="popup-close-btn" title="Close">&#10006;</button>
             </div>
             <div class="popup-content" id="popup-summary">
-                <p>Asking the AI to read the monitoring information, this may take a moment...</p>
+                <p>Building the summary from the page information...</p>
             </div>
             <div class="popup-captcha">
                 <div class="popup-captcha-label">Prove you're not a robot to close this window:</div>
