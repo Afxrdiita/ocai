@@ -335,6 +335,10 @@ try {
             $hostDetails = $details[0];
         }
         $services = thrukGet("services?columns=description,state,last_state_change,plugin_output&host_name=" . urlencode($selectedHost) . "&sort=-last_state_change");
+        $services = array_values(array_filter($services, function ($s) {
+            $desc = isset($s["description"]) ? strtolower($s["description"]) : "";
+            return stripos($desc, "MUISFundAccountingServices.mufg-is.it/BloombergReportManager Dashboard") === false;
+        }));
         foreach ($services as $s) {
             $counts[serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[1]]++;
         }
