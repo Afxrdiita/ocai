@@ -657,61 +657,6 @@ header("Cache-Control: no-cache, must-revalidate");
         .popup-content p { margin: 8px 0; }
         .popup-content a { color: #00f0ff; }
 
-        .popup-captcha {
-            margin: 0 20px;
-            padding: 15px;
-            border: 1px solid rgba(0, 240, 255, 0.3);
-            border-radius: 10px;
-            background: rgba(0, 240, 255, 0.04);
-        }
-
-        .popup-captcha-label {
-            color: #aaa;
-            font-size: 12px;
-            margin-bottom: 10px;
-        }
-
-        .popup-captcha-row {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-
-        #captcha-canvas {
-            border-radius: 6px;
-            border: 1px solid #555;
-            background: #111;
-        }
-
-        #captcha-input {
-            flex: 1;
-            background: #111;
-            border: 2px solid #555;
-            border-radius: 6px;
-            color: #fff;
-            padding: 8px 12px;
-            font-size: 14px;
-        }
-
-        #captcha-input:focus {
-            outline: none;
-            border-color: #00f0ff;
-        }
-
-        .captcha-close {
-            padding: 8px 18px;
-            background: rgba(255, 0, 230, 0.1);
-            border: 2px solid #ff00e6;
-            border-radius: 6px;
-            color: #fff;
-            font-weight: bold;
-            cursor: pointer;
-        }
-
-        .captcha-close:hover { box-shadow: 0 0 12px #ff00e6; }
-
-        .captcha-error { color: #ff5a5a; font-size: 12px; margin-top: 8px; min-height: 14px; }
-
         .refresh-timer {
             position: fixed;
             top: 20px;
@@ -833,15 +778,6 @@ header("Cache-Control: no-cache, must-revalidate");
                 <button class="popup-close-btn" id="popup-close-btn" title="Close">&#10006;</button>
             </div>
             <div class="popup-content" id="popup-summary"></div>
-            <div class="popup-captcha" id="popup-captcha">
-                <div class="popup-captcha-label">Prove you're not a robot to see the summary:</div>
-                <div class="popup-captcha-row">
-                    <canvas id="captcha-canvas" width="140" height="44"></canvas>
-                    <input type="text" id="captcha-input" placeholder="Type the code" autocomplete="off">
-                    <button class="captcha-close" id="captcha-close">Show Summary</button>
-                </div>
-                <div class="captcha-error" id="captcha-error"></div>
-            </div>
         </div>
     </div>
 
@@ -869,13 +805,8 @@ header("Cache-Control: no-cache, must-revalidate");
         const popupOverlay = document.getElementById("popup-overlay");
         const popupSummary = document.getElementById("popup-summary");
         const popupCloseBtn = document.getElementById("popup-close-btn");
-        const captchaClose = document.getElementById("captcha-close");
-        const captchaCanvas = document.getElementById("captcha-canvas");
-        const captchaInput = document.getElementById("captcha-input");
-        const captchaError = document.getElementById("captcha-error");
 
         let summaryRequested = false;
-        let captchaCode = "";
 
         function playPing() {
             try {
@@ -892,38 +823,6 @@ header("Cache-Control: no-cache, must-revalidate");
                 osc.start();
                 osc.stop(ctx.currentTime + 0.6);
             } catch (e) {
-            }
-        }
-
-        function drawCaptcha() {
-            const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-            captchaCode = "";
-            for (let i = 0; i < 5; i++) {
-                captchaCode += chars[Math.floor(Math.random() * chars.length)];
-            }
-            const ctx = captchaCanvas.getContext("2d");
-            ctx.clearRect(0, 0, captchaCanvas.width, captchaCanvas.height);
-            ctx.fillStyle = "#111";
-            ctx.fillRect(0, 0, captchaCanvas.width, captchaCanvas.height);
-            for (let i = 0; i < 6; i++) {
-                ctx.strokeStyle = "rgba(0,240,255," + (0.1 + Math.random() * 0.25) + ")";
-                ctx.beginPath();
-                ctx.moveTo(Math.random() * 140, Math.random() * 44);
-                ctx.lineTo(Math.random() * 140, Math.random() * 44);
-                ctx.stroke();
-            }
-            for (let i = 0; i < 30; i++) {
-                ctx.fillStyle = "rgba(255,255,255," + (Math.random() * 0.2) + ")";
-                ctx.fillRect(Math.random() * 140, Math.random() * 44, 2, 2);
-            }
-            for (let i = 0; i < captchaCode.length; i++) {
-                ctx.save();
-                ctx.translate(18 + i * 24, 28 + (Math.random() * 8 - 4));
-                ctx.rotate((Math.random() - 0.5) * 0.6);
-                ctx.font = "bold 26px Arial";
-                ctx.fillStyle = ["#00f0ff", "#ffd75a", "#5aff8a", "#ff5af0"][i % 4];
-                ctx.fillText(captchaCode[i], 0, 0);
-                ctx.restore();
             }
         }
 
@@ -945,48 +844,16 @@ header("Cache-Control: no-cache, must-revalidate");
                 });
         }
 
-        let captchaPassed = false;
-        const popupCaptcha = document.getElementById("popup-captcha");
-
         infoBubble.addEventListener("click", () => {
             playPing();
             popupOverlay.classList.add("open");
-            captchaPassed = false;
             summaryRequested = false;
             popupSummary.innerHTML = "";
-            popupCaptcha.style.display = "";
-            captchaInput.value = "";
-            captchaError.textContent = "";
-            drawCaptcha();
-            captchaInput.focus();
+            loadSummary();
         });
 
         popupCloseBtn.addEventListener("click", () => {
-            if (!captchaPassed) {
-                captchaError.textContent = "Complete the captcha below to see the summary first.";
-                captchaInput.focus();
-                return;
-            }
             popupOverlay.classList.remove("open");
-        });
-
-        captchaClose.addEventListener("click", () => {
-            if (captchaInput.value.trim().toUpperCase() === captchaCode) {
-                captchaPassed = true;
-                captchaError.textContent = "";
-                popupCaptcha.style.display = "none";
-                loadSummary();
-            } else {
-                captchaError.textContent = "Incorrect code, try again.";
-                captchaInput.value = "";
-                drawCaptcha();
-            }
-        });
-
-        captchaInput.addEventListener("keyup", (e) => {
-            if (e.key === "Enter") {
-                captchaClose.click();
-             }
         });
 
         const REFRESH_SECONDS = 30;
