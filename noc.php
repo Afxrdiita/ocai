@@ -2,7 +2,6 @@
 const THURUK_BASE_URL = "https://monitoring-dr.options-it.com/thruk";
 const THURUK_HOSTGROUP = "NOC - Servers";
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
-const MAX_ITEMS = 50;
 
 function getApiKey() {
     $key = getenv(THURUK_API_KEY_ENV);
@@ -26,10 +25,10 @@ function thrukGet($path) {
     }
     $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    $data = json_decode($body, true);
     if ($status !== 200) {
         throw new Exception("Thruk API returned HTTP " . $status);
     }
+    $data = json_decode($body, true);
     if (!is_array($data)) {
         throw new Exception("Thruk API returned invalid data");
     }
@@ -49,15 +48,16 @@ function formatDuration($seconds) {
     return $minutes . "m";
 }
 
-function stateLabel($state, $isHost = false) {
-    if ($isHost) {
-        switch ((int)$state) {
-            case 0: return ["UP", "ok"];
-            case 1: return ["DOWN", "crit"];
-            case 2: return ["UNREACHABLE", "crit"];
-            default: return ["UNKNOWN", "unknown"];
-        }
+function hostStateLabel($state) {
+    switch ((int)$state) {
+        case 0: return ["UP", "ok"];
+        case 1: return ["DOWN", "crit"];
+        case 2: return ["UNREACHABLE", "crit"];
+        default: return ["UNKNOWN", "unknown"];
     }
+}
+
+function serviceStateLabel($state) {
     switch ((int)$state) {
         case 0: return ["OK", "ok"];
         case 1: return ["WARNING", "warn"];
@@ -66,59 +66,41 @@ function stateLabel($state, $isHost = false) {
     }
 }
 
-function fetchRows() {
-    $rows = [];
-    $hg = urlencode(THURUK_HOSTGROUP);
-    $hosts = thrukGet("hosts?columns=name,state,last_state_change,plugin_output&groups[gte]=" . $hg);
-    foreach ($hosts as $h) {
-        $rows[] = [
-            "type" => "host",
-            "host" => isset($h["name"]) ? $h["name"] : (isset($h["host_name"]) ? $h["host_name"] : "?"),
-            "service" => "",
-            "state" => isset($h["state"]) ? $h["state"] : -1,
-            "last_state_change" => isset($h["last_state_change"]) ? $h["last_state_change"] : 0,
-            "output" => isset($h["plugin_output"]) ? $h["plugin_output"] : "",
-        ];
-    }
-    $services = thrukGet("services?columns=host_name,description,state,last_state_change,plugin_output&hostgroups[gte]=" . $hg);
-    foreach ($services as $s) {
-        $rows[] = [
-            "type" => "service",
-            "host" => isset($s["host_name"]) ? $s["host_name"] : "?",
-            "service" => isset($s["description"]) ? $s["description"] : "?",
-            "state" => isset($s["state"]) ? $s["state"] : -1,
-            "last_state_change" => isset($s["last_state_change"]) ? $s["last_state_change"] : 0,
-            "output" => isset($s["plugin_output"]) ? $s["plugin_output"] : "",
-        ];
-    }
-    usort($rows, function ($a, $b) {
-        return $b["last_state_change"] <=> $a["last_state_change"];
-    });
-    return array_slice($rows, 0, MAX_ITEMS);
-}
-
 $error = null;
-$rows = [];
+$serverList = [];
+$selectedHost = isset($_GET["host"]) ? $_GET["host"] : "";
+$hostDetails = null;
+$services = [];
 $counts = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
+$now = time();
 
 try {
-    $rows = fetchRows();
-    foreach ($rows as $r) {
-        $counts[stateLabel($r["state"], $r["type"] === "host")[1]]++;
+    $hosts = thrukGet("hosts?columns=name&groups[gte]=" . urlencode(THURUK_HOSTGROUP) . "&sort=name");
+    foreach ($hosts as $h) {
+        if (isset($h["name"])) {
+            $serverList[] = $h["name"];
+        }
+    }
+
+    if ($selectedHost !== "" && in_array($selectedHost, $serverList, true)) {
+        $details = thrukGet("hosts?columns=name,address,state,plugin_output,last_state_change&name=" . urlencode($selectedHost));
+        if (count($details) > 0) {
+            $hostDetails = $details[0];
+        }
+        $services = thrukGet("services?columns=description,state,last_state_change,plugin_output&host_name=" . urlencode($selectedHost) . "&sort=-last_state_change");
+        foreach ($services as $s) {
+            $counts[serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[1]]++;
+        }
     }
 } catch (Exception $e) {
     $error = $e->getMessage();
 }
-
-$total = count($rows);
-$now = time();
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="60">
     <title>NOC - Servers</title>
     <style>
         body {
@@ -141,23 +123,66 @@ $now = time();
             text-shadow: 0 0 10px #00f0ff, 0 0 30px #00f0ff;
         }
 
-        .summary {
+        .selector {
             display: flex;
             justify-content: center;
+            margin: 35px 0;
+        }
+
+        .selector select {
+            background: #111;
+            color: #fff;
+            border: 2px solid #00f0ff;
+            border-radius: 8px;
+            padding: 12px 20px;
+            font-size: 16px;
+            min-width: 320px;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+            cursor: pointer;
+        }
+
+        .selector select:focus { outline: none; box-shadow: 0 0 20px #00f0ff; }
+
+        .host-card {
+            border: 2px solid #00f0ff;
+            border-radius: 12px;
+            padding: 25px 30px;
+            background: rgba(0, 240, 255, 0.05);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+            margin-bottom: 30px;
+        }
+
+        .host-card h2 {
+            margin: 0 0 15px 0;
+            color: #fff;
+            font-size: 26px;
+            letter-spacing: 2px;
+        }
+
+        .host-info div {
+            margin: 6px 0;
+            font-size: 15px;
+        }
+
+        .host-info .label { color: #888; display: inline-block; min-width: 130px; }
+        .host-info .value { color: #eee; }
+
+        .summary {
+            display: flex;
             gap: 20px;
-            margin: 30px 0;
+            margin-bottom: 25px;
         }
 
         .summary-item {
             border-radius: 10px;
-            padding: 15px 30px;
+            padding: 12px 28px;
             text-align: center;
             border: 2px solid #555;
             background: rgba(255, 255, 255, 0.03);
         }
 
-        .summary-item .count { font-size: 28px; font-weight: 900; }
-        .summary-item .label { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: #aaa; }
+        .summary-item .count { font-size: 26px; font-weight: 900; }
+        .summary-item .label { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: #aaa; }
         .summary-item.ok .count { color: #5aff8a; }
         .summary-item.warn .count { color: #ffd75a; }
         .summary-item.crit .count { color: #ff5a5a; }
@@ -209,9 +234,15 @@ $now = time();
         tr.crit .duration { color: #ff5a5a; }
         tr.warn .duration { color: #ffd75a; }
 
-        .host { font-weight: bold; color: #fff; }
-        .svc { color: #00f0ff; }
+        .svc { color: #00f0ff; font-weight: bold; }
         .output { color: #bbb; font-size: 13px; }
+
+        .hint {
+            text-align: center;
+            color: #666;
+            font-size: 15px;
+            margin-top: 40px;
+        }
 
         .error-box {
             border: 2px solid #ff5a5a;
@@ -233,53 +264,75 @@ $now = time();
         <h1><?php echo htmlspecialchars(THURUK_HOSTGROUP); ?></h1>
 
         <?php if ($error): ?>
-            <div class="error-box">
-                <?php echo htmlspecialchars($error); ?>
-            </div>
+            <div class="error-box"><?php echo htmlspecialchars($error); ?></div>
         <?php else: ?>
-            <div class="summary">
-                <div class="summary-item ok"><div class="count"><?php echo $counts["ok"]; ?></div><div class="label">OK</div></div>
-                <div class="summary-item warn"><div class="count"><?php echo $counts["warn"]; ?></div><div class="label">Warning</div></div>
-                <div class="summary-item crit"><div class="count"><?php echo $counts["crit"]; ?></div><div class="label">Critical</div></div>
-                <div class="summary-item unknown"><div class="count"><?php echo $counts["unknown"]; ?></div><div class="label">Unknown</div></div>
+            <div class="selector">
+                <form method="get" id="server-form">
+                    <select name="host" onchange="document.getElementById('server-form').submit();">
+                        <option value="">-- Select a server --</option>
+                        <?php foreach ($serverList as $name): ?>
+                            <option value="<?php echo htmlspecialchars($name); ?>" <?php echo $name === $selectedHost ? "selected" : ""; ?>>
+                                <?php echo htmlspecialchars($name); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </form>
             </div>
 
-            <table>
-                <thead>
-                    <tr>
-                        <th>Urgency</th>
-                        <th>Host</th>
-                        <th>Service</th>
-                        <th>Status</th>
-                        <th>Duration</th>
-                        <th>Details</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($rows as $r):
-                        list($label, $class) = stateLabel($r["state"], $r["type"] === "host");
-                        $duration = $now - $r["last_state_change"];
-                    ?>
-                    <tr class="<?php echo $class; ?>">
-                        <td class="duration"><?php echo formatDuration($duration); ?></td>
-                        <td class="host"><?php echo htmlspecialchars($r["host"]); ?></td>
-                        <td class="svc"><?php echo $r["service"] !== "" ? htmlspecialchars($r["service"]) : "—"; ?></td>
-                        <td><span class="badge <?php echo $class; ?>"><?php echo $label; ?></span></td>
-                        <td class="duration"><?php echo formatDuration($duration); ?></td>
-                        <td class="output"><?php echo htmlspecialchars($r["output"]); ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+            <?php if ($selectedHost === ""): ?>
+                <div class="hint">Select a server from the dropdown to view its monitoring information.</div>
+            <?php elseif (!$hostDetails): ?>
+                <div class="error-box">No details found for '<?php echo htmlspecialchars($selectedHost); ?>'.</div>
+            <?php else:
+                list($hostLabel, $hostClass) = hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1);
+                $hostDuration = $now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now);
+            ?>
+                <div class="host-card">
+                    <h2><?php echo htmlspecialchars($hostDetails["name"]); ?></h2>
+                    <div class="host-info">
+                        <div><span class="label">Status</span><span class="badge <?php echo $hostClass; ?>"><?php echo $hostLabel; ?></span></div>
+                        <div><span class="label">Address</span><span class="value"><?php echo htmlspecialchars(isset($hostDetails["address"]) ? $hostDetails["address"] : "-"); ?></span></div>
+                        <div><span class="label">In state since</span><span class="value"><?php echo formatDuration($hostDuration); ?></span></div>
+                        <div><span class="label">Host check</span><span class="value"><?php echo htmlspecialchars(isset($hostDetails["plugin_output"]) ? $hostDetails["plugin_output"] : "-"); ?></span></div>
+                    </div>
+                </div>
 
-            <?php if ($total === 0): ?>
-                <div class="error-box">No hosts or services found for hostgroup '<?php echo htmlspecialchars(THURUK_HOSTGROUP); ?>'.</div>
-            <?php else: ?>
-                <div class="updated" style="margin-top:0;">Showing top <?php echo $total; ?> of all hosts and services by urgency</div>
+                <div class="summary">
+                    <div class="summary-item ok"><div class="count"><?php echo $counts["ok"]; ?></div><div class="label">OK</div></div>
+                    <div class="summary-item warn"><div class="count"><?php echo $counts["warn"]; ?></div><div class="label">Warning</div></div>
+                    <div class="summary-item crit"><div class="count"><?php echo $counts["crit"]; ?></div><div class="label">Critical</div></div>
+                    <div class="summary-item unknown"><div class="count"><?php echo $counts["unknown"]; ?></div><div class="label">Unknown</div></div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Urgency</th>
+                            <th>Service</th>
+                            <th>Status</th>
+                            <th>Duration</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($services as $s):
+                            list($label, $class) = serviceStateLabel(isset($s["state"]) ? $s["state"] : -1);
+                            $duration = $now - (isset($s["last_state_change"]) ? $s["last_state_change"] : $now);
+                        ?>
+                        <tr class="<?php echo $class; ?>">
+                            <td class="duration"><?php echo formatDuration($duration); ?></td>
+                            <td class="svc"><?php echo htmlspecialchars(isset($s["description"]) ? $s["description"] : "?"); ?></td>
+                            <td><span class="badge <?php echo $class; ?>"><?php echo $label; ?></span></td>
+                            <td class="duration"><?php echo formatDuration($duration); ?></td>
+                            <td class="output"><?php echo htmlspecialchars(isset($s["plugin_output"]) ? $s["plugin_output"] : ""); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
             <?php endif; ?>
         <?php endif; ?>
 
-        <div class="updated">Auto-refreshes every 60 seconds &middot; Last updated <?php echo date("H:i:s"); ?></div>
+        <div class="updated">Last updated <?php echo date("H:i:s"); ?></div>
     </div>
 </body>
 </html>
