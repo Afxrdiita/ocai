@@ -1,6 +1,14 @@
 <?php
 const THURUK_BASE_URL = "https://monitoring-dr.options-it.com/thruk";
-const MONITORED_SERVER = "yinnag01e";
+const DEFAULT_SERVER = "yinnag01e";
+const SERVER_LIST = [
+    "yinnag01e",
+    "oitnag01-us",
+    "opnag01e",
+    "opnag02p",
+    "oitnaginf01uk",
+    "oitnagtel01-uk",
+];
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
 
 function getApiKey() {
@@ -158,17 +166,21 @@ function plainEnglish($service, $output, $state) {
 }
 
 $error = null;
+$selectedHost = isset($_GET["host"]) ? $_GET["host"] : "";
+if (!in_array($selectedHost, SERVER_LIST, true)) {
+    $selectedHost = DEFAULT_SERVER;
+}
 $hostDetails = null;
 $services = [];
 $counts = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
 $now = time();
 
 try {
-    $details = thrukGet("hosts?columns=name,address,state,plugin_output,last_state_change&name=" . urlencode(MONITORED_SERVER));
+    $details = thrukGet("hosts?columns=name,address,state,plugin_output,last_state_change&name=" . urlencode($selectedHost));
     if (count($details) > 0) {
         $hostDetails = $details[0];
     }
-    $services = thrukGet("services?columns=description,state,last_state_change,plugin_output&host_name=" . urlencode(MONITORED_SERVER) . "&sort=-last_state_change");
+    $services = thrukGet("services?columns=description,state,last_state_change,plugin_output&host_name=" . urlencode($selectedHost) . "&sort=-last_state_change");
     foreach ($services as $s) {
         $counts[serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[1]]++;
     }
@@ -181,14 +193,65 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo htmlspecialchars(MONITORED_SERVER); ?> Monitoring</title>
+    <title><?php echo htmlspecialchars($selectedHost); ?> Monitoring</title>
     <style>
         body {
             margin: 0;
             background: #0a0a12;
             font-family: Arial, sans-serif;
             color: #eee;
-            padding: 40px 20px;
+        }
+
+        .layout { display: flex; min-height: 100vh; }
+
+        .sidebar {
+            width: 230px;
+            flex-shrink: 0;
+            background: rgba(255, 255, 255, 0.03);
+            border-right: 2px solid rgba(0, 240, 255, 0.2);
+            padding: 30px 0;
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            overflow-y: auto;
+        }
+
+        .sidebar h3 {
+            margin: 0 20px 20px 20px;
+            font-size: 14px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: #00f0ff;
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
+        }
+
+        .sidebar a {
+            display: block;
+            padding: 10px 20px;
+            color: #bbb;
+            text-decoration: none;
+            font-size: 14px;
+            border-left: 3px solid transparent;
+            transition: background 0.2s, color 0.2s, border-color 0.2s;
+        }
+
+        .sidebar a:hover {
+            background: rgba(0, 240, 255, 0.08);
+            color: #fff;
+        }
+
+        .sidebar a.active {
+            background: rgba(0, 240, 255, 0.12);
+            color: #fff;
+            border-left: 3px solid #00f0ff;
+            box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.15);
+        }
+
+        .main {
+            flex: 1;
+            margin-left: 232px;
+            padding: 40px 30px;
         }
 
         .container { max-width: 1100px; margin: 0 auto; }
@@ -364,13 +427,25 @@ try {
 </head>
 <body>
     <div class="refresh-timer">Refresh in<span class="seconds" id="refresh-countdown">30</span></div>
-    <div class="container">
-        <h1><?php echo htmlspecialchars(MONITORED_SERVER); ?> Dashboard</h1>
+    <div class="layout">
+        <div class="sidebar">
+            <h3>Servers</h3>
+            <?php foreach (SERVER_LIST as $name): ?>
+                <a href="noc.php?host=<?php echo urlencode($name); ?>"
+                   class="<?php echo $name === $selectedHost ? "active" : ""; ?>">
+                    <?php echo htmlspecialchars($name); ?>
+                </a>
+            <?php endforeach; ?>
+        </div>
 
-        <?php if ($error): ?>
-            <div class="error-box"><?php echo htmlspecialchars($error); ?></div>
-        <?php elseif (!$hostDetails): ?>
-            <div class="error-box">No monitoring data found for '<?php echo htmlspecialchars(MONITORED_SERVER); ?>'.</div>
+        <div class="main">
+            <div class="container">
+                <h1><?php echo htmlspecialchars($selectedHost); ?> Dashboard</h1>
+
+                <?php if ($error): ?>
+                    <div class="error-box"><?php echo htmlspecialchars($error); ?></div>
+                <?php elseif (!$hostDetails): ?>
+                    <div class="error-box">No monitoring data found for '<?php echo htmlspecialchars($selectedHost); ?>'.</div>
         <?php else:
             list($hostLabel, $hostClass) = hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1);
             $hostDuration = $now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now);
@@ -428,9 +503,11 @@ try {
                     <?php endforeach; ?>
                 </tbody>
             </table>
-        <?php endif; ?>
+            <?php endif; ?>
 
-        <div class="updated">Auto-refreshes every 30 seconds &middot; Last updated <?php echo date("H:i:s"); ?></div>
+                <div class="updated">Auto-refreshes every 30 seconds &middot; Last updated <?php echo date("H:i:s"); ?></div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -448,8 +525,10 @@ try {
             }
         }
 
-        tabDetails.addEventListener("click", () => setMode(false));
-        tabPlain.addEventListener("click", () => setMode(true));
+        if (tabDetails && tabPlain) {
+            tabDetails.addEventListener("click", () => setMode(false));
+            tabPlain.addEventListener("click", () => setMode(true));
+        }
 
         const REFRESH_SECONDS = 30;
         let remaining = REFRESH_SECONDS;
