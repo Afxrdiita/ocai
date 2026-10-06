@@ -3,11 +3,11 @@ const THURUK_BASE_URL = "https://monitoring-dr.options-it.com/thruk";
 const DEFAULT_SERVER = "yinnag01e";
 const SERVER_LIST = [
     "yinnag01e",
-    "oitnag01-us",
-    "opnag01e",
-    "opnag02p",
-    "oitnaginf01uk",
-    "oitnagtel01-uk",
+    "cignag01n",
+    "wtsnag01nye",
+    "stcnag01-uk",
+    "symnag01-uk",
+    "smknag01-us",
 ];
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
 
