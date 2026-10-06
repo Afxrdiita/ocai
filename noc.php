@@ -1,7 +1,6 @@
 <?php
 const THURUK_BASE_URL = "https://monitoring-dr.options-it.com/thruk";
-const THURUK_HOSTGROUP = "NOC - Servers";
-const DEFAULT_SERVER = "yinnag01e";
+const MONITORED_SERVER = "yinnag01e";
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
 
 function getApiKey() {
@@ -76,6 +75,7 @@ function plainServiceName($service) {
         "ram" => "Available short-term memory",
         "swap" => "Backup memory usage",
         "disk" => "Storage space",
+        "disk /" => "Main storage space",
         "space" => "Storage space",
         "inode" => "Storage bookkeeping space",
         "ping" => "Network reachability",
@@ -158,34 +158,19 @@ function plainEnglish($service, $output, $state) {
 }
 
 $error = null;
-$serverList = [];
-$selectedHost = isset($_GET["host"]) ? $_GET["host"] : "";
 $hostDetails = null;
 $services = [];
 $counts = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
 $now = time();
 
 try {
-    $hosts = thrukGet("hosts?columns=name&groups[gte]=" . urlencode(THURUK_HOSTGROUP) . "&sort=name");
-    foreach ($hosts as $h) {
-        if (isset($h["name"])) {
-            $serverList[] = $h["name"];
-        }
+    $details = thrukGet("hosts?columns=name,address,state,plugin_output,last_state_change&name=" . urlencode(MONITORED_SERVER));
+    if (count($details) > 0) {
+        $hostDetails = $details[0];
     }
-
-    if ($selectedHost === "" || !in_array($selectedHost, $serverList, true)) {
-        $selectedHost = in_array(DEFAULT_SERVER, $serverList, true) ? DEFAULT_SERVER : (count($serverList) > 0 ? $serverList[0] : "");
-    }
-
-    if ($selectedHost !== "") {
-        $details = thrukGet("hosts?columns=name,address,state,plugin_output,last_state_change&name=" . urlencode($selectedHost));
-        if (count($details) > 0) {
-            $hostDetails = $details[0];
-        }
-        $services = thrukGet("services?columns=description,state,last_state_change,plugin_output&host_name=" . urlencode($selectedHost) . "&sort=-last_state_change");
-        foreach ($services as $s) {
-            $counts[serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[1]]++;
-        }
+    $services = thrukGet("services?columns=description,state,last_state_change,plugin_output&host_name=" . urlencode(MONITORED_SERVER) . "&sort=-last_state_change");
+    foreach ($services as $s) {
+        $counts[serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[1]]++;
     }
 } catch (Exception $e) {
     $error = $e->getMessage();
@@ -197,67 +182,21 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="refresh" content="30">
-    <title><?php echo htmlspecialchars($selectedHost); ?> Monitoring</title>
+    <title><?php echo htmlspecialchars(MONITORED_SERVER); ?> Monitoring</title>
     <style>
         body {
             margin: 0;
             background: #0a0a12;
             font-family: Arial, sans-serif;
             color: #eee;
+            padding: 40px 20px;
         }
 
-        .layout { display: flex; min-height: 100vh; }
-
-        .sidebar {
-            width: 260px;
-            flex-shrink: 0;
-            background: rgba(255, 255, 255, 0.03);
-            border-right: 2px solid rgba(0, 240, 255, 0.2);
-            padding: 30px 0;
-            overflow-y: auto;
-            max-height: 100vh;
-        }
-
-        .sidebar h3 {
-            margin: 0 20px 20px 20px;
-            font-size: 14px;
-            letter-spacing: 3px;
-            text-transform: uppercase;
-            color: #00f0ff;
-            text-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
-        }
-
-        .sidebar a {
-            display: block;
-            padding: 10px 20px;
-            color: #bbb;
-            text-decoration: none;
-            font-size: 14px;
-            border-left: 3px solid transparent;
-            transition: background 0.2s, color 0.2s, border-color 0.2s;
-        }
-
-        .sidebar a:hover {
-            background: rgba(0, 240, 255, 0.08);
-            color: #fff;
-        }
-
-        .sidebar a.active {
-            background: rgba(0, 240, 255, 0.12);
-            color: #fff;
-            border-left: 3px solid #00f0ff;
-            box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.15);
-        }
-
-        .main {
-            flex: 1;
-            padding: 40px 30px;
-            max-width: 1150px;
-        }
+        .container { max-width: 1100px; margin: 0 auto; }
 
         h1 {
             text-align: center;
-            font-size: 30px;
+            font-size: 32px;
             font-weight: 900;
             letter-spacing: 3px;
             text-transform: uppercase;
@@ -277,15 +216,23 @@ try {
         .host-card h2 {
             margin: 0 0 15px 0;
             color: #fff;
-            font-size: 24px;
+            font-size: 26px;
             letter-spacing: 2px;
         }
 
-        .host-info div { margin: 6px 0; font-size: 15px; }
+        .host-info div {
+            margin: 6px 0;
+            font-size: 15px;
+        }
+
         .host-info .label { color: #888; display: inline-block; min-width: 130px; }
         .host-info .value { color: #eee; }
 
-        .summary { display: flex; gap: 20px; margin-bottom: 25px; }
+        .summary {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
 
         .summary-item {
             border-radius: 10px;
@@ -354,7 +301,11 @@ try {
         .output.plain-mode .tech { display: none; }
         .output.plain-mode .plain { display: inline; }
 
-        .tabs { display: flex; gap: 10px; margin-bottom: 15px; }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
 
         .tab {
             padding: 10px 25px;
@@ -391,85 +342,73 @@ try {
     </style>
 </head>
 <body>
-    <div class="layout">
-        <div class="sidebar">
-            <h3>Servers</h3>
-            <?php foreach ($serverList as $name): ?>
-                <a href="noc.php?host=<?php echo urlencode($name); ?>"
-                   class="<?php echo $name === $selectedHost ? "active" : ""; ?>">
-                    <?php echo htmlspecialchars($name); ?>
-                </a>
-            <?php endforeach; ?>
-        </div>
+    <div class="container">
+        <h1><?php echo htmlspecialchars(MONITORED_SERVER); ?> Dashboard</h1>
 
-        <div class="main">
-            <?php if ($error): ?>
-                <div class="error-box"><?php echo htmlspecialchars($error); ?></div>
-            <?php elseif (!$hostDetails): ?>
-                <div class="error-box">No monitoring data found for '<?php echo htmlspecialchars($selectedHost); ?>'.</div>
-            <?php else:
-                list($hostLabel, $hostClass) = hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1);
-                $hostDuration = $now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now);
-            ?>
-                <h1><?php echo htmlspecialchars($hostDetails["name"]); ?> Dashboard</h1>
-
-                <div class="host-card">
-                    <h2><?php echo htmlspecialchars($hostDetails["name"]); ?></h2>
-                    <div class="host-info">
-                        <div><span class="label">Status</span><span class="badge <?php echo $hostClass; ?>"><?php echo $hostLabel; ?></span></div>
-                        <div><span class="label">Address</span><span class="value"><?php echo htmlspecialchars(isset($hostDetails["address"]) ? $hostDetails["address"] : "-"); ?></span></div>
-                        <div><span class="label">In state since</span><span class="value"><?php echo formatDuration($hostDuration); ?></span></div>
-                        <div><span class="label">Host check</span><span class="value"><?php echo htmlspecialchars(isset($hostDetails["plugin_output"]) ? $hostDetails["plugin_output"] : "-"); ?></span></div>
-                    </div>
+        <?php if ($error): ?>
+            <div class="error-box"><?php echo htmlspecialchars($error); ?></div>
+        <?php elseif (!$hostDetails): ?>
+            <div class="error-box">No monitoring data found for '<?php echo htmlspecialchars(MONITORED_SERVER); ?>'.</div>
+        <?php else:
+            list($hostLabel, $hostClass) = hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1);
+            $hostDuration = $now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now);
+        ?>
+            <div class="host-card">
+                <h2><?php echo htmlspecialchars($hostDetails["name"]); ?></h2>
+                <div class="host-info">
+                    <div><span class="label">Status</span><span class="badge <?php echo $hostClass; ?>"><?php echo $hostLabel; ?></span></div>
+                    <div><span class="label">Address</span><span class="value"><?php echo htmlspecialchars(isset($hostDetails["address"]) ? $hostDetails["address"] : "-"); ?></span></div>
+                    <div><span class="label">In state since</span><span class="value"><?php echo formatDuration($hostDuration); ?></span></div>
+                    <div><span class="label">Host check</span><span class="value"><?php echo htmlspecialchars(isset($hostDetails["plugin_output"]) ? $hostDetails["plugin_output"] : "-"); ?></span></div>
                 </div>
+            </div>
 
-                <div class="summary">
-                    <div class="summary-item ok"><div class="count"><?php echo $counts["ok"]; ?></div><div class="label">OK</div></div>
-                    <div class="summary-item warn"><div class="count"><?php echo $counts["warn"]; ?></div><div class="label">Warning</div></div>
-                    <div class="summary-item crit"><div class="count"><?php echo $counts["crit"]; ?></div><div class="label">Critical</div></div>
-                    <div class="summary-item unknown"><div class="count"><?php echo $counts["unknown"]; ?></div><div class="label">Unknown</div></div>
-                </div>
+            <div class="summary">
+                <div class="summary-item ok"><div class="count"><?php echo $counts["ok"]; ?></div><div class="label">OK</div></div>
+                <div class="summary-item warn"><div class="count"><?php echo $counts["warn"]; ?></div><div class="label">Warning</div></div>
+                <div class="summary-item crit"><div class="count"><?php echo $counts["crit"]; ?></div><div class="label">Critical</div></div>
+                <div class="summary-item unknown"><div class="count"><?php echo $counts["unknown"]; ?></div><div class="label">Unknown</div></div>
+            </div>
 
-                <div class="tabs">
-                    <button class="tab active" id="tab-details">Details</button>
-                    <button class="tab" id="tab-plain">Plain English</button>
-                </div>
+            <div class="tabs">
+                <button class="tab active" id="tab-details">Details</button>
+                <button class="tab" id="tab-plain">Plain English</button>
+            </div>
 
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Urgency</th>
-                            <th>Service</th>
-                            <th>Status</th>
-                            <th>Duration</th>
-                            <th id="details-header">Details</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($services as $s):
-                            list($label, $class) = serviceStateLabel(isset($s["state"]) ? $s["state"] : -1);
-                            $duration = $now - (isset($s["last_state_change"]) ? $s["last_state_change"] : $now);
-                            $svcName = isset($s["description"]) ? $s["description"] : "?";
-                            $svcOutput = isset($s["plugin_output"]) ? $s["plugin_output"] : "";
-                            $plain = plainEnglish($svcName, $svcOutput, isset($s["state"]) ? $s["state"] : -1);
-                        ?>
-                        <tr class="<?php echo $class; ?>">
-                            <td class="duration"><?php echo formatDuration($duration); ?></td>
-                            <td class="svc"><?php echo htmlspecialchars($svcName); ?></td>
-                            <td><span class="badge <?php echo $class; ?>"><?php echo $label; ?></span></td>
-                            <td class="duration"><?php echo formatDuration($duration); ?></td>
-                            <td class="output">
-                                <span class="tech"><?php echo htmlspecialchars($svcOutput); ?></span>
-                                <span class="plain"><?php echo htmlspecialchars($plain); ?></span>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Urgency</th>
+                        <th>Service</th>
+                        <th>Status</th>
+                        <th>Duration</th>
+                        <th id="details-header">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($services as $s):
+                        list($label, $class) = serviceStateLabel(isset($s["state"]) ? $s["state"] : -1);
+                        $duration = $now - (isset($s["last_state_change"]) ? $s["last_state_change"] : $now);
+                        $svcName = isset($s["description"]) ? $s["description"] : "?";
+                        $svcOutput = isset($s["plugin_output"]) ? $s["plugin_output"] : "";
+                        $plain = plainEnglish($svcName, $svcOutput, isset($s["state"]) ? $s["state"] : -1);
+                    ?>
+                    <tr class="<?php echo $class; ?>">
+                        <td class="duration"><?php echo formatDuration($duration); ?></td>
+                        <td class="svc"><?php echo htmlspecialchars($svcName); ?></td>
+                        <td><span class="badge <?php echo $class; ?>"><?php echo $label; ?></span></td>
+                        <td class="duration"><?php echo formatDuration($duration); ?></td>
+                        <td class="output">
+                            <span class="tech"><?php echo htmlspecialchars($svcOutput); ?></span>
+                            <span class="plain"><?php echo htmlspecialchars($plain); ?></span>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
 
-            <div class="updated">Auto-refreshes every 30 seconds &middot; Last updated <?php echo date("H:i:s"); ?></div>
-        </div>
+        <div class="updated">Auto-refreshes every 30 seconds &middot; Last updated <?php echo date("H:i:s"); ?></div>
     </div>
 
     <script>
@@ -487,10 +426,8 @@ try {
             }
         }
 
-        if (tabDetails && tabPlain) {
-            tabDetails.addEventListener("click", () => setMode(false));
-            tabPlain.addEventListener("click", () => setMode(true));
-        }
+        tabDetails.addEventListener("click", () => setMode(false));
+        tabPlain.addEventListener("click", () => setMode(true));
     </script>
 </body>
 </html>
