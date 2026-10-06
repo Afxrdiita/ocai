@@ -10,6 +10,10 @@ const SERVER_LIST = [
     "smknag01-us",
 ];
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
+const AI_URL = "https://api.privatemind.com/v1/chat/completions";
+const AI_MODEL = "reasoning";
+const AI_TOKEN_ENV = "AI_API_KEY";
+const AI_CACHE_TTL = 300;
 
 function getApiKey() {
     $key = getenv(THURUK_API_KEY_ENV);
@@ -51,6 +55,96 @@ function thrukGet($path) {
         return $data["data"];
     }
     return $data;
+}
+
+function aiRequest($prompt, $systemPrompt) {
+    $token = getenv(AI_TOKEN_ENV);
+    $payload = [
+        "model" => AI_MODEL,
+        "messages" => [
+            ["role" => "system", "content" => $systemPrompt],
+            ["role" => "user", "content" => $prompt],
+        ],
+        "temperature" => 0.15,
+        "max_tokens" => 3000,
+        "top_k" => 20,
+        "top_p" => 0.8,
+        "chat_template_kwargs" => ["enable_thinking" => false],
+        "repetition_penalty" => 1.00,
+        "stream" => false,
+    ];
+    $ch = curl_init(AI_URL);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 120,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode($payload),
+        CURLOPT_HTTPHEADER => [
+            "Accept: application/json",
+            "Content-Type: application/json",
+            "Authorization: Bearer " . $token,
+        ],
+    ]);
+    $body = curl_exec($ch);
+    if ($body === false) {
+        $error = curl_error($ch);
+        curl_close($ch);
+        throw new Exception("AI request failed: " . $error);
+    }
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($status !== 200) {
+        throw new Exception("AI returned HTTP " . $status);
+    }
+    $data = json_decode($body, true);
+    if (!isset($data["choices"][0]["message"]["content"])) {
+        throw new Exception("AI returned an unexpected response");
+    }
+    return $data["choices"][0]["message"]["content"];
+}
+
+function aiCacheDir() {
+    $dir = sys_get_temp_dir() . "/noc_ai_cache";
+    if (!is_dir($dir)) {
+        mkdir($dir, 0755, true);
+    }
+    return $dir;
+}
+
+function aiSummariseHost($hostName, $hostDetails, $services, $now) {
+    $latest = 0;
+    $lines = "HOST " . $hostName .
+        ": " . hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1)[0] .
+        " for " . formatDuration($now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now)) .
+        " (address " . (isset($hostDetails["address"]) ? $hostDetails["address"] : "-") .
+        ", check: " . substr(isset($hostDetails["plugin_output"]) ? $hostDetails["plugin_output"] : "", 0, 120) . ")\n";
+    foreach ($services as $s) {
+        $change = isset($s["last_state_change"]) ? $s["last_state_change"] : $now;
+        if ($change > $latest) {
+            $latest = $change;
+        }
+        $lines .= "  - " . (isset($s["description"]) ? $s["description"] : "?") .
+            ": " . serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[0] .
+            " for " . formatDuration($now - $change) .
+            " (" . substr(isset($s["plugin_output"]) ? $s["plugin_output"] : "", 0, 120) . ")\n";
+    }
+
+    $cacheFile = aiCacheDir() . "/hostsummary_" . md5($hostName) . "_" . md5($latest) . ".html";
+    if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < AI_CACHE_TTL) {
+        return file_get_contents($cacheFile);
+    }
+
+    $systemPrompt = "You are a NOC duty analyst talking to a non-technical client. " .
+        "Summarise the monitoring information for this server in a few simple sentences covering the most important points. " .
+        "Then clearly mention anything you recommend the user keeps a close eye on, and why. " .
+        "If everything is healthy, say so reassuringly. " .
+        "Important instructions: 1. Limit your response to a few short paragraphs. " .
+        "2. Format your output in HTML complete with URLs. " .
+        "3. Use language like you are a technical support person talking to a client.";
+    $summary = aiRequest($lines, $systemPrompt);
+    file_put_contents($cacheFile, $summary);
+    return $summary;
 }
 
 function formatDuration($seconds) {
@@ -246,9 +340,16 @@ try {
     }
 } catch (Exception $e) {
 }
-?>
-<?php
 $displayName = $selectedHost !== null ? $selectedHost : (isset($pageHost) ? $pageHost : DEFAULT_SERVER);
+if (isset($_GET["action"]) && $_GET["action"] === "summary" && $hostDetails !== null) {
+    header("Content-Type: application/json");
+    try {
+        echo json_encode(["success" => true, "summary" => aiSummariseHost($displayName, $hostDetails, $services, $now)]);
+    } catch (Exception $e) {
+        echo json_encode(["success" => false, "error" => $e->getMessage()]);
+    }
+    exit;
+}
 header("Cache-Control: no-cache, must-revalidate");
 ?>
 <!DOCTYPE html>
@@ -458,6 +559,22 @@ header("Cache-Control: no-cache, must-revalidate");
             box-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
         }
 
+        .ai-summary-box {
+            display: none;
+            border: 2px solid #00f0ff;
+            border-radius: 12px;
+            padding: 25px 30px;
+            background: rgba(0, 240, 255, 0.05);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+            font-size: 15px;
+            line-height: 1.7;
+            color: #ddd;
+            margin-bottom: 25px;
+        }
+
+        .ai-summary-box p { margin: 10px 0; }
+        .ai-summary-box a { color: #00f0ff; }
+
         .error-box {
             border: 2px solid #ff5a5a;
             border-radius: 10px;
@@ -541,12 +658,17 @@ header("Cache-Control: no-cache, must-revalidate");
                 <div class="summary-item unknown"><div class="count"><?php echo $counts["unknown"]; ?></div><div class="label">Unknown</div></div>
             </div>
 
-            <div class="tabs">
-                <button class="tab active" id="tab-details">Details</button>
-                <button class="tab" id="tab-plain">Plain English</button>
-            </div>
+                <div class="tabs">
+                    <button class="tab active" id="tab-details">Details</button>
+                    <button class="tab" id="tab-plain">Plain English</button>
+                    <button class="tab" id="tab-summary">Summary</button>
+                </div>
 
-            <table>
+                <div class="ai-summary-box" id="ai-summary-box">
+                    <p>Asking the AI to read the monitoring information, this may take a moment...</p>
+                </div>
+
+                <table id="services-table">
                 <thead>
                     <tr>
                         <th>Urgency</th>
@@ -587,21 +709,66 @@ header("Cache-Control: no-cache, must-revalidate");
     <script>
         const tabDetails = document.getElementById("tab-details");
         const tabPlain = document.getElementById("tab-plain");
+        const tabSummary = document.getElementById("tab-summary");
         const detailsHeader = document.getElementById("details-header");
         const outputs = document.querySelectorAll(".output");
+        const servicesTable = document.getElementById("services-table");
+        const summaryBox = document.getElementById("ai-summary-box");
+
+        let summaryLoaded = false;
+        let summaryLoading = false;
 
         function setMode(plain) {
+            servicesTable.style.display = "";
+            summaryBox.style.display = "none";
             outputs.forEach(el => el.classList.toggle("plain-mode", plain));
             tabDetails.classList.toggle("active", !plain);
             tabPlain.classList.toggle("active", plain);
+            tabSummary.classList.remove("active");
             if (detailsHeader) {
                 detailsHeader.textContent = plain ? "Plain English" : "Details";
             }
         }
 
+        function loadSummary() {
+            if (summaryLoading) return;
+            if (summaryLoaded) return;
+            summaryLoading = true;
+            summaryBox.innerHTML = "<p>Asking the AI to read the monitoring information, this may take a moment...</p>";
+
+            fetch("?action=summary")
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        summaryBox.innerHTML = data.summary;
+                        summaryLoaded = true;
+                    } else {
+                        summaryBox.innerHTML = "<p>Could not generate the summary: " + data.error + "</p>";
+                    }
+                })
+                .catch(() => {
+                    summaryBox.innerHTML = "<p>Could not generate the summary. Please try again.</p>";
+                })
+                .finally(() => {
+                    summaryLoading = false;
+                });
+        }
+
+        function showSummary() {
+            servicesTable.style.display = "none";
+            summaryBox.style.display = "block";
+            tabDetails.classList.remove("active");
+            tabPlain.classList.remove("active");
+            tabSummary.classList.add("active");
+            loadSummary();
+        }
+
         if (tabDetails && tabPlain) {
             tabDetails.addEventListener("click", () => setMode(false));
             tabPlain.addEventListener("click", () => setMode(true));
+        }
+        if (tabSummary) {
+            tabSummary.addEventListener("click", showSummary);
         }
 
         const REFRESH_SECONDS = 30;
