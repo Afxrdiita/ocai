@@ -234,19 +234,6 @@
             echo json_encode($questions);
         ?>;
 
-        const resultFacts = [
-            "You're rarer than a perfect game of bowling — a 300 game happens only once in about 11,500 games!",
-            "Honey never spoils — edible pots found in ancient tombs are over 3,000 years old and still good. Great minds think sweet!",
-            "A group of flamingos is called a flamboyance. Like you today — pretty in pink!",
-            "Hot water can freeze faster than cold water — the Mpemba effect. Some things in science are counterintuitive, just like some quiz answers!",
-            "The first computer bug was an actual moth, found in 1947. Everyone starts somewhere — even debugging started with a bug!",
-            "Sea otters hold hands while sleeping so they don't drift apart. Keep holding on — you're doing great!",
-            "A bolt of lightning is five times hotter than the surface of the sun. Your brain clearly runs hot too!",
-            "Scotland's national animal is the unicorn. Believe in yourself like Scotland believes in unicorns!",
-            "Sloths can hold their breath longer than dolphins can. Slow and steady still gets there!",
-            "There are more possible chess games than atoms in the observable universe. So many possibilities ahead of you!",
-        ];
-
         const QUESTIONS_PER_TEST = 10;
         const QUESTION_HISTORY_KEY = "quizQuestionHistory";
         const HISTORY_LIMIT = 50;
@@ -348,7 +335,6 @@
 
         function showResult() {
             const percent = Math.round((score / questions.length) * 100);
-            const fact = resultFacts[Math.floor(Math.random() * resultFacts.length)];
 
             let reviewHtml = "";
             if (wrongAnswers.length > 0) {
@@ -368,7 +354,6 @@
                 '<div class="progress">Test Complete</div>' +
                 '<div class="score">You scored ' + score + ' / ' + questions.length +
                 ' (' + percent + '%)</div>' +
-                '<div class="result-fact">' + fact + '</div>' +
                 reviewHtml +
                 '<div style="text-align:center;margin-top:25px;"><a class="btn pink" href="quiz.php">Take the test again</a></div>';
         }
