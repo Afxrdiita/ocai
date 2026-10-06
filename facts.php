@@ -131,6 +131,25 @@
             background: linear-gradient(#333, #000);
             border-radius: 6px;
         }
+
+        .test-link {
+            margin-top: 50px;
+            padding: 14px 40px;
+            border: 2px solid #00f0ff;
+            border-radius: 10px;
+            background: rgba(0, 240, 255, 0.05);
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            text-decoration: none;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+            transition: box-shadow 0.2s;
+        }
+
+        .test-link:hover {
+            box-shadow: 0 0 20px #00f0ff;
+        }
     </style>
 </head>
 <body>
@@ -150,6 +169,8 @@
             <div class="lever-base"></div>
         </div>
     </div>
+
+    <a class="test-link" href="quiz.php">Take the test!</a>
 
     <script>
         const facts = <?php
