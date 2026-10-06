@@ -34,6 +34,7 @@ function thrukGet($path) {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 10,
         CURLOPT_TIMEOUT => 60,
+        CURLOPT_SSL_VERIFYHOST => 0,
         CURLOPT_HTTPHEADER => ["X-Thruk-Auth-Key: " . envValue(THURUK_API_KEY_ENV)],
     ]);
     $body = curl_exec($ch);

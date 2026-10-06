@@ -23,6 +23,7 @@ function thrukGet($path) {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 10,
         CURLOPT_TIMEOUT => 60,
+        CURLOPT_SSL_VERIFYHOST => 0,
         CURLOPT_HTTPHEADER => ["X-Thruk-Auth-Key: " . getApiKey()],
     ]);
     $body = curl_exec($ch);
