@@ -269,7 +269,13 @@ if (!$cached) {
         }
         $serverList = array_values(array_unique($serverList));
         $serverList = array_values(array_filter($serverList, function ($name) {
-            return stripos($name, "nag") !== false;
+            if (stripos($name, "nag") === false) {
+                return false;
+            }
+            if (stripos($name, "MUISFundAccountingServices") !== false || stripos($name, "BloombergReportManager") !== false) {
+                return false;
+            }
+            return true;
         }));
 
         foreach ($serverList as $name) {
