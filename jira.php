@@ -68,8 +68,9 @@ function jiraRequest($path, $method = "GET", $payload = null) {
     $ch = curl_init(JIRA_BASE_URL . $path);
     $options = [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_TIMEOUT => 60,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_DNS_CACHE_TIMEOUT => 5,
         CURLOPT_HTTPHEADER => [
             "Accept: application/json",
             "Content-Type: application/json",
@@ -247,6 +248,7 @@ $hostStatus = [];
 $hostCounts = [];
 $nocDataText = "";
 $now = time();
+set_time_limit(90);
 
 try {
     $result = jiraRequest("/rest/api/2/search", "POST", [
