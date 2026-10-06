@@ -584,7 +584,7 @@ header("Cache-Control: no-cache, must-revalidate");
         .info-bubble {
             position: fixed;
             bottom: 30px;
-            left: 30px;
+            right: 30px;
             width: 60px;
             height: 60px;
             border-radius: 50%;
