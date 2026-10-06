@@ -311,6 +311,14 @@ header("Cache-Control: no-cache, must-revalidate");
         .sidebar a.active.status-yellow { color: #ffd75a; }
         .sidebar a.active.status-green { color: #5aff8a; }
 
+        .sidebar-divider {
+            margin: 20px;
+            border-top: 1px solid rgba(0, 240, 255, 0.25);
+        }
+
+        .sidebar a.sidebar-jira { color: #ff00e6; font-weight: bold; }
+        .sidebar a.sidebar-jira:hover { color: #ff5af0; }
+
         .main {
             flex: 1;
             margin-left: 232px;
@@ -501,6 +509,9 @@ header("Cache-Control: no-cache, must-revalidate");
                     <?php echo htmlspecialchars($name); ?>
                 </a>
             <?php endforeach; ?>
+
+            <div class="sidebar-divider"></div>
+            <a href="jira.php" class="sidebar-jira">&raquo; Disruption Tracker</a>
         </div>
 
         <div class="main">
