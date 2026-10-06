@@ -501,7 +501,7 @@ header("Cache-Control: no-cache, must-revalidate");
     <div class="layout">
         <div class="sidebar">
             <h3>Summary</h3>
-            <a href="jira.php" class="sidebar-jira">&raquo; Disruption Tracker</a>
+            <a href="jira.php" class="sidebar-jira">&raquo; NOC Summary</a>
 
             <div class="sidebar-divider"></div>
             <h3>Servers</h3>
