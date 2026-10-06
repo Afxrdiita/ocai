@@ -144,6 +144,42 @@
         .btn.pink:hover {
             box-shadow: 0 0 20px #ff00e6;
         }
+
+        .review-item {
+            border: 1px solid #555;
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin: 10px 0;
+            background: rgba(255, 255, 255, 0.03);
+            text-align: left;
+        }
+
+        .review-question {
+            color: #fff;
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+
+        .review-answer {
+            font-size: 15px;
+            margin: 3px 0;
+        }
+
+        .review-answer.wrong {
+            color: #ff5a5a;
+        }
+
+        .review-answer.correct {
+            color: #5aff8a;
+        }
+
+        .review-perfect {
+            color: #5aff8a;
+            font-size: 17px;
+            margin-top: 20px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -222,6 +258,7 @@
         let current = 0;
         let score = 0;
         let locked = false;
+        let wrongAnswers = [];
 
         function shuffle(array) {
             for (let i = array.length - 1; i > 0; i--) {
@@ -234,6 +271,7 @@
         function startTest() {
             current = 0;
             score = 0;
+            wrongAnswers = [];
             questions = shuffle([...questionPool]).slice(0, QUESTIONS_PER_TEST);
             questions.forEach(q => {
                 const correct = q.a[q.c];
@@ -261,8 +299,15 @@
         function selectAnswer(i) {
             if (locked) return;
             locked = true;
-            if (i === questions[current].c) {
+            const q = questions[current];
+            if (i === q.c) {
                 score++;
+            } else {
+                wrongAnswers.push({
+                    question: q.q,
+                    yourAnswer: q.a[i],
+                    correctAnswer: q.a[q.c]
+                });
             }
             current++;
             setTimeout(() => {
@@ -278,12 +323,27 @@
             const percent = Math.round((score / questions.length) * 100);
             const fact = resultFacts[Math.floor(Math.random() * resultFacts.length)];
 
+            let reviewHtml = "";
+            if (wrongAnswers.length > 0) {
+                reviewHtml = '<div class="progress" style="margin-top:25px;">Questions you got wrong</div>';
+                wrongAnswers.forEach((w) => {
+                    reviewHtml += '<div class="review-item">' +
+                        '<div class="review-question">' + w.question + '</div>' +
+                        '<div class="review-answer wrong">Your answer: ' + w.yourAnswer + '</div>' +
+                        '<div class="review-answer correct">Correct answer: ' + w.correctAnswer + '</div>' +
+                        '</div>';
+                });
+            } else {
+                reviewHtml = '<div class="review-perfect">Perfect score — nothing to review!</div>';
+            }
+
             quizBox.innerHTML =
                 '<div class="progress">Test Complete</div>' +
                 '<div class="score">You scored ' + score + ' / ' + questions.length +
                 ' (' + percent + '%)</div>' +
                 '<div class="result-fact">' + fact + '</div>' +
-                '<div style="text-align:center;"><a class="btn pink" href="quiz.php">Take the test again</a></div>';
+                reviewHtml +
+                '<div style="text-align:center;margin-top:25px;"><a class="btn pink" href="quiz.php">Take the test again</a></div>';
         }
 
         startTest();
