@@ -59,6 +59,9 @@ function thrukGet($path) {
 
 function aiRequest($prompt, $systemPrompt) {
     $token = getenv(AI_TOKEN_ENV);
+    if (!$token) {
+        throw new Exception("The AI_API_KEY environment variable is not set on the server, so the AI summary cannot run. Set it and restart Apache/PHP.");
+    }
     $payload = [
         "model" => AI_MODEL,
         "messages" => [
