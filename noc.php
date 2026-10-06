@@ -32,7 +32,13 @@ function thrukGet($path) {
         throw new Exception("Thruk API request failed: " . $error);
     }
     $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
     curl_close($ch);
+    if ($status === 301 || $status === 302) {
+        throw new Exception("Thruk rejected the API key and redirected to: " .
+            ($redirectUrl ? $redirectUrl : "(unknown)") .
+            ". Check that the THURUK_API_KEY is valid (regenerate it from the Thruk user profile if needed).");
+    }
     if ($status !== 200) {
         throw new Exception("Thruk API returned HTTP " . $status);
     }
