@@ -114,21 +114,29 @@ function aiCacheDir() {
 
 function aiSummariseHost($hostName, $hostDetails, $services, $now) {
     $latest = 0;
-    $lines = "HOST " . $hostName .
-        ": " . hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1)[0] .
-        " for " . formatDuration($now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now)) .
-        " (address " . (isset($hostDetails["address"]) ? $hostDetails["address"] : "-") .
-        ", check: " . substr(isset($hostDetails["plugin_output"]) ? $hostDetails["plugin_output"] : "", 0, 120) . ")\n";
+    $counts = ["OK" => 0, "WARNING" => 0, "CRITICAL" => 0, "UNKNOWN" => 0];
+    $lines = "This monitoring dashboard page shows the following details.\n\n";
+    $lines .= "HOST: " . $hostName . "\n";
+    $lines .= "  - Status: " . hostStateLabel(isset($hostDetails["state"]) ? $hostDetails["state"] : -1)[0] .
+        " for " . formatDuration($now - (isset($hostDetails["last_state_change"]) ? $hostDetails["last_state_change"] : $now)) . "\n";
+    $lines .= "  - Address: " . (isset($hostDetails["address"]) ? $hostDetails["address"] : "-") . "\n";
+    $lines .= "  - Host check output: " . substr(isset($hostDetails["plugin_output"]) ? $hostDetails["plugin_output"] : "", 0, 200) . "\n";
+    $lines .= "\nSERVICES on this page:\n";
     foreach ($services as $s) {
         $change = isset($s["last_state_change"]) ? $s["last_state_change"] : $now;
         if ($change > $latest) {
             $latest = $change;
         }
+        $label = serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[0];
+        $counts[$label]++;
         $lines .= "  - " . (isset($s["description"]) ? $s["description"] : "?") .
-            ": " . serviceStateLabel(isset($s["state"]) ? $s["state"] : -1)[0] .
+            ": " . $label .
             " for " . formatDuration($now - $change) .
-            " (" . substr(isset($s["plugin_output"]) ? $s["plugin_output"] : "", 0, 120) . ")\n";
+            " | details: " . substr(isset($s["plugin_output"]) ? $s["plugin_output"] : "", 0, 200) . "\n";
     }
+    $lines .= "\nService totals: " . $counts["OK"] . " OK, " . $counts["WARNING"] . " warning, " .
+        $counts["CRITICAL"] . " critical, " . $counts["UNKNOWN"] . " unknown.\n";
+    $lines .= "Services are listed on the page in order of urgency (longest time in their current state first).\n";
 
     $cacheFile = aiCacheDir() . "/hostsummary_" . md5($hostName) . "_" . md5($latest) . ".html";
     if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < AI_CACHE_TTL) {
@@ -136,7 +144,8 @@ function aiSummariseHost($hostName, $hostDetails, $services, $now) {
     }
 
     $systemPrompt = "You are a NOC duty analyst talking to a non-technical client. " .
-        "Summarise the monitoring information for this server in a few simple sentences covering the most important points. " .
+        "Explain everything shown on this monitoring page: the host's overall status, each notable service check, how long things have been in their current state, and what the outputs mean. " .
+        "Cover all the details on the page, not just the problems. " .
         "Then clearly mention anything you recommend the user keeps a close eye on, and why. " .
         "If everything is healthy, say so reassuringly. " .
         "Important instructions: 1. Limit your response to a few short paragraphs. " .
