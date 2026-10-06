@@ -1,13 +1,7 @@
 <?php
-const JIRA_BASE_URL = "https://options-it.atlassian.net";
-const JIRA_JQL = 'project = "DISRUPT" ORDER BY created DESC';
-const MAX_TICKETS = 50;
-const JIRA_EMAIL_ENV = "JIRA_EMAIL";
-const JIRA_TOKEN_ENV = "JIRA_API_TOKEN";
 const AI_URL = "https://api.privatemind.com/v1/chat/completions";
 const AI_MODEL = "reasoning";
 const AI_TOKEN_ENV = "AI_API_KEY";
-const CACHE_TTL = 21600;
 const NOC_CACHE_TTL = 300;
 
 const THURUK_BASE_URL = "https://monitoring-dr.options-it.com/thruk";
@@ -63,43 +57,6 @@ function thrukGet($path) {
     return $data;
 }
 
-function jiraRequest($path, $method = "GET", $payload = null) {
-    $auth = base64(envValue(JIRA_EMAIL_ENV) . ":" . envValue(JIRA_TOKEN_ENV));
-    $ch = curl_init(JIRA_BASE_URL . $path);
-    $options = [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CONNECTTIMEOUT => 5,
-        CURLOPT_TIMEOUT => 15,
-        CURLOPT_DNS_CACHE_TIMEOUT => 5,
-        CURLOPT_HTTPHEADER => [
-            "Accept: application/json",
-            "Content-Type: application/json",
-            "Authorization: Basic " . $auth,
-        ],
-    ];
-    if ($method === "POST") {
-        $options[CURLOPT_POST] = true;
-        $options[CURLOPT_POSTFIELDS] = json_encode($payload);
-    }
-    curl_setopt_array($ch, $options);
-    $body = curl_exec($ch);
-    if ($body === false) {
-        $error = curl_error($ch);
-        curl_close($ch);
-        throw new Exception("JIRA request failed: " . $error);
-    }
-    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    if ($status !== 200) {
-        throw new Exception("JIRA returned HTTP " . $status);
-    }
-    $data = json_decode($body, true);
-    if (!is_array($data)) {
-        throw new Exception("JIRA returned invalid data");
-    }
-    return $data;
-}
-
 function aiRequest($prompt, $systemPrompt) {
     $payload = [
         "model" => AI_MODEL,
@@ -146,42 +103,6 @@ function aiRequest($prompt, $systemPrompt) {
     return $data["choices"][0]["message"]["content"];
 }
 
-function summariseTicket($key) {
-    $commentsData = jiraRequest("/rest/api/2/issue/" . urlencode($key) . "/comment?maxResults=100&orderBy=created");
-    $comments = isset($commentsData["comments"]) ? $commentsData["comments"] : [];
-    $latest = 0;
-    $lines = [];
-    foreach ($comments as $c) {
-        $created = isset($c["created"]) ? strtotime($c["created"]) : 0;
-        if ($created > $latest) {
-            $latest = $created;
-        }
-        $author = isset($c["author"]["displayName"]) ? $c["author"]["displayName"] : "Unknown";
-        $lines[] = $author . " (" . (isset($c["created"]) ? $c["created"] : "?") . "): " .
-            (isset($c["body"]) ? $c["body"] : "");
-    }
-
-    if (count($lines) === 0) {
-        return "<p>There are no comments on this ticket yet.</p>";
-    }
-
-    $cacheFile = cacheDir() . "/summary_" . md5($key) . "_" . md5($latest) . ".html";
-    if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < CACHE_TTL) {
-        return file_get_contents($cacheFile);
-    }
-
-    $systemPrompt = "You are a technical support person talking to a client. " .
-        "Summarise the JIRA ticket comments provided in plain English, avoiding technical jargon. " .
-        "Then add a clearly labelled 'Recommended steps' section with practical next actions. " .
-        "Important instructions: 1. Limit your response to a few short paragraphs. " .
-        "2. Format your output in HTML complete with URLs. " .
-        "3. Use language like you are a technical support person talking to a client.";
-    $prompt = "Summarise the comments on JIRA ticket " . $key . " (Disruption Tracker).\n\nComments:\n" . implode("\n\n", $lines);
-    $summary = aiRequest($prompt, $systemPrompt);
-    file_put_contents($cacheFile, $summary);
-    return $summary;
-}
-
 function nocSummary($dataText) {
     $cacheFile = cacheDir() . "/noc_summary_" . md5($dataText) . ".html";
     if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < NOC_CACHE_TTL) {
@@ -199,20 +120,6 @@ function nocSummary($dataText) {
     return $summary;
 }
 
-if (isset($_GET["action"]) && $_GET["action"] === "summary" && isset($_GET["key"])) {
-    header("Content-Type: application/json");
-    try {
-        $key = $_GET["key"];
-        if (!preg_match('/^[A-Z][A-Z0-9]+-\d+$/', $key)) {
-            throw new Exception("Invalid ticket key");
-        }
-        echo json_encode(["success" => true, "summary" => summariseTicket($key)]);
-    } catch (Exception $e) {
-        echo json_encode(["success" => false, "error" => $e->getMessage()]);
-    }
-    exit;
-}
-
 function formatDurationText($seconds) {
     if ($seconds < 0) $seconds = 0;
     $days = floor($seconds / 86400);
@@ -223,49 +130,27 @@ function formatDurationText($seconds) {
     return $minutes . "m";
 }
 
-function hostStateText($state) {
+function hostStateLabel($state) {
     switch ((int)$state) {
-        case 0: return "UP";
-        case 1: return "DOWN";
-        case 2: return "UNREACHABLE";
-        default: return "UNKNOWN";
+        case 0: return ["UP", "ok"];
+        case 1: return ["DOWN", "crit"];
+        case 2: return ["UNREACHABLE", "crit"];
+        default: return ["UNKNOWN", "unknown"];
     }
 }
 
-function serviceStateText($state) {
-    switch ((int)$state) {
-        case 0: return "OK";
-        case 1: return "WARNING";
-        case 2: return "CRITICAL";
-        default: return "UNKNOWN";
-    }
-}
-
-$error = null;
-$tickets = [];
 $nocError = null;
 $hostStatus = [];
+$hostInfo = [];
 $hostCounts = [];
 $nocDataText = "";
 $now = time();
 set_time_limit(90);
 
 try {
-    $result = jiraRequest("/rest/api/2/search", "POST", [
-        "jql" => JIRA_JQL,
-        "maxResults" => MAX_TICKETS,
-        "fields" => ["summary", "description", "status", "created"],
-    ]);
-    $tickets = isset($result["issues"]) ? $result["issues"] : [];
-} catch (Exception $e) {
-    $error = $e->getMessage();
-}
-
-try {
     $nameRegex = "^(" . implode("|", array_map("preg_quote", SERVER_LIST)) . ")$";
 
     $allHosts = thrukGet("hosts?columns=name,address,state,plugin_output,last_state_change&name[regex]=" . urlencode($nameRegex));
-    $hostInfo = [];
     foreach ($allHosts as $h) {
         $name = isset($h["name"]) ? $h["name"] : "";
         if (!in_array($name, SERVER_LIST, true)) {
@@ -286,19 +171,12 @@ try {
     }
 
     $allServices = thrukGet("services?columns=host_name,description,state,plugin_output,last_state_change&host_name[regex]=" . urlencode($nameRegex));
-    $servicesByHost = [];
     foreach ($allServices as $s) {
         $h = isset($s["host_name"]) ? $s["host_name"] : "";
         if (!in_array($h, SERVER_LIST, true)) {
             continue;
         }
         $state = (int)(isset($s["state"]) ? $s["state"] : -1);
-        $servicesByHost[$h][] = [
-            "description" => isset($s["description"]) ? $s["description"] : "?",
-            "state" => $state,
-            "output" => isset($s["plugin_output"]) ? $s["plugin_output"] : "",
-            "duration" => $now - (isset($s["last_state_change"]) ? $s["last_state_change"] : $now),
-        ];
         if (!isset($hostStatus[$h])) {
             $hostStatus[$h] = "green";
             $hostCounts[$h] = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
@@ -319,17 +197,23 @@ try {
         } else {
             $hostCounts[$h]["ok"]++;
         }
+        $hostInfo[$h]["services"][] = [
+            "description" => isset($s["description"]) ? $s["description"] : "?",
+            "state" => $state,
+            "output" => isset($s["plugin_output"]) ? $s["plugin_output"] : "",
+            "duration" => $now - (isset($s["last_state_change"]) ? $s["last_state_change"] : $now),
+        ];
     }
 
     foreach (SERVER_LIST as $name) {
         $info = isset($hostInfo[$name]) ? $hostInfo[$name] : null;
-        $svcs = isset($servicesByHost[$name]) ? $servicesByHost[$name] : [];
+        $svcs = (isset($info["services"]) && is_array($info["services"])) ? $info["services"] : [];
         if (!$info && count($svcs) === 0) {
             continue;
         }
         $nocDataText .= "HOST " . $name;
         if ($info) {
-            $nocDataText .= ": " . hostStateText($info["state"]) .
+            $nocDataText .= ": " . hostStateLabel($info["state"])[0] .
                 " for " . formatDurationText($info["duration"]) .
                 " (address " . $info["address"] . ", check: " . substr($info["output"], 0, 120) . ")";
         } else {
@@ -337,7 +221,11 @@ try {
         }
         $nocDataText .= "\n";
         foreach ($svcs as $svc) {
-            $nocDataText .= "  - " . $svc["description"] . ": " . serviceStateText($svc["state"]) .
+            $stateText = "OK";
+            if ($svc["state"] === 1) $stateText = "WARNING";
+            if ($svc["state"] === 2) $stateText = "CRITICAL";
+            if ($svc["state"] === 3) $stateText = "UNKNOWN";
+            $nocDataText .= "  - " . $svc["description"] . ": " . $stateText .
                 " for " . formatDurationText($svc["duration"]) .
                 " (" . substr($svc["output"], 0, 120) . ")\n";
         }
@@ -359,21 +247,13 @@ if (isset($_GET["action"]) && $_GET["action"] === "noc_summary") {
     }
     exit;
 }
-
-function statusClass($status) {
-    $s = strtolower($status);
-    if (strpos($s, "done") !== false || strpos($s, "resolved") !== false || strpos($s, "closed") !== false || strpos($s, "complete") !== false) return "ok";
-    if (strpos($s, "block") !== false || strpos($s, "critical") !== false || strpos($s, "reject") !== false) return "crit";
-    if (strpos($s, "progress") !== false || strpos($s, "review") !== false || strpos($s, "pending") !== false || strpos($s, "hold") !== false) return "warn";
-    return "unknown";
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Disruption Tracker &amp; NOC Overview</title>
+    <title>NOC Summary</title>
     <style>
         body {
             margin: 0;
@@ -453,15 +333,6 @@ function statusClass($status) {
             text-shadow: 0 0 10px #00f0ff, 0 0 30px #00f0ff;
         }
 
-        h2.section {
-            font-size: 20px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            color: #00f0ff;
-            text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
-            margin: 40px 0 20px 0;
-        }
-
         .subtitle { text-align: center; color: #888; font-size: 14px; margin-bottom: 35px; }
 
         .noc-card {
@@ -470,6 +341,7 @@ function statusClass($status) {
             padding: 25px 30px;
             background: rgba(0, 240, 255, 0.05);
             box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+            margin-bottom: 35px;
         }
 
         .noc-card h2 { margin: 0 0 15px 0; color: #fff; font-size: 22px; letter-spacing: 2px; }
@@ -477,18 +349,33 @@ function statusClass($status) {
         .ai-summary p { margin: 8px 0; line-height: 1.6; font-size: 15px; color: #ddd; }
         .ai-summary a { color: #00f0ff; }
 
-        .ticket {
-            border: 2px solid #333;
-            border-radius: 12px;
-            padding: 20px 25px;
-            margin: 15px 0;
+        .host-overview {
+            width: 100%;
+            border-collapse: collapse;
             background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 35px;
         }
 
-        .ticket-top { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
-        .ticket-key { color: #00f0ff; font-weight: 900; font-size: 16px; }
-        .ticket-summary { color: #fff; font-weight: bold; font-size: 17px; flex: 1; }
-        .ticket-created { color: #666; font-size: 12px; }
+        .host-overview th {
+            background: rgba(0, 240, 255, 0.08);
+            color: #00f0ff;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-size: 13px;
+            padding: 14px 16px;
+            text-align: left;
+        }
+
+        .host-overview td {
+            padding: 12px 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 15px;
+        }
+
+        .host-overview tr.crit td { background: rgba(255, 0, 0, 0.08); }
+        .host-overview tr.warn td { background: rgba(255, 200, 0, 0.05); }
 
         .badge {
             display: inline-block;
@@ -504,23 +391,11 @@ function statusClass($status) {
         .badge.crit { background: rgba(255, 90, 90, 0.15); color: #ff5a5a; border: 1px solid #ff5a5a; }
         .badge.unknown { background: rgba(170, 170, 170, 0.15); color: #aaa; border: 1px solid #aaa; }
 
-        .ticket-desc { color: #bbb; font-size: 14px; margin: 12px 0 0 0; line-height: 1.5; }
-
-        .summary-btn {
-            margin-top: 15px;
-            padding: 8px 20px;
-            background: rgba(0, 240, 255, 0.07);
-            border: 2px solid #00f0ff;
-            border-radius: 8px;
-            color: #fff;
-            font-size: 13px;
-            font-weight: bold;
-            cursor: pointer;
-            box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
-        }
-
-        .summary-btn:disabled { opacity: 0.5; cursor: wait; }
-        .summary-btn:hover:not(:disabled) { box-shadow: 0 0 20px rgba(0, 240, 255, 0.6); }
+        .host-name { font-weight: bold; color: #fff; }
+        .count-ok { color: #5aff8a; }
+        .count-warn { color: #ffd75a; }
+        .count-crit { color: #ff5a5a; }
+        .count-unknown { color: #aaa; }
 
         .error-box {
             border: 2px solid #ff5a5a;
@@ -540,7 +415,7 @@ function statusClass($status) {
     <div class="layout">
         <div class="sidebar">
             <h3>Summary</h3>
-            <a href="jira.php" class="sidebar-jira active">&raquo; Disruption Tracker</a>
+            <a href="jira.php" class="sidebar-jira active">&raquo; NOC Summary</a>
 
             <div class="sidebar-divider"></div>
             <h3>Servers</h3>
@@ -555,48 +430,49 @@ function statusClass($status) {
 
         <div class="main">
             <div class="container">
-                <h1>NOC &amp; Disruption Tracker</h1>
-                <div class="subtitle">Server monitoring overview and the 50 newest DISRUPT tickets</div>
+                <h1>NOC Summary</h1>
+                <div class="subtitle">AI overview of all monitored servers</div>
 
-                <div class="noc-card">
-                    <h2>Monitoring Summary</h2>
-                    <div class="ai-summary" id="noc-summary">
-                        <?php if ($nocError): ?>
-                            <p>NOC data unavailable: <?php echo htmlspecialchars($nocError); ?></p>
-                        <?php else: ?>
-                            <p>Asking the AI to read the current monitoring data, this may take a moment...</p>
-                        <?php endif; ?>
-                    </div>
-                </div>
-
-                <h2 class="section">Newest DISRUPT Tickets</h2>
-
-                <?php if ($error): ?>
-                    <div class="error-box"><?php echo htmlspecialchars($error); ?></div>
+                <?php if ($nocError): ?>
+                    <div class="error-box"><?php echo htmlspecialchars($nocError); ?></div>
                 <?php else: ?>
-                    <?php foreach ($tickets as $t):
-                        $key = isset($t["key"]) ? $t["key"] : "?";
-                        $fields = isset($t["fields"]) ? $t["fields"] : [];
-                        $summary = isset($fields["summary"]) ? $fields["summary"] : "";
-                        $description = isset($fields["description"]) ? $fields["description"] : "";
-                        $statusName = isset($fields["status"]["name"]) ? $fields["status"]["name"] : "UNKNOWN";
-                        $created = isset($fields["created"]) ? date("d M Y H:i", strtotime($fields["created"])) : "?";
-                        $class = statusClass($statusName);
-                    ?>
-                        <div class="ticket" id="ticket-<?php echo htmlspecialchars($key); ?>">
-                            <div class="ticket-top">
-                                <span class="ticket-key"><?php echo htmlspecialchars($key); ?></span>
-                                <span class="ticket-summary"><?php echo htmlspecialchars($summary); ?></span>
-                                <span class="badge <?php echo $class; ?>"><?php echo htmlspecialchars($statusName); ?></span>
-                                <span class="ticket-created"><?php echo htmlspecialchars($created); ?></span>
-                            </div>
-                            <?php if ($description !== ""): ?>
-                                <div class="ticket-desc"><?php echo nl2br(htmlspecialchars($description)); ?></div>
-                            <?php endif; ?>
-                            <button class="summary-btn" data-key="<?php echo htmlspecialchars($key); ?>">AI Summary &amp; Recommended Steps</button>
-                            <div class="ai-summary" style="display:none;"></div>
+                    <div class="noc-card">
+                        <h2>Monitoring Summary</h2>
+                        <div class="ai-summary" id="noc-summary">
+                            <p>Asking the AI to read the current monitoring data, this may take a moment...</p>
                         </div>
-                    <?php endforeach; ?>
+                    </div>
+
+                    <table class="host-overview">
+                        <thead>
+                            <tr>
+                                <th>Host</th>
+                                <th>Status</th>
+                                <th>OK</th>
+                                <th>Warning</th>
+                                <th>Critical</th>
+                                <th>Unknown</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach (SERVER_LIST as $name):
+                                $info = isset($hostInfo[$name]) ? $hostInfo[$name] : null;
+                                $counts = isset($hostCounts[$name]) ? $hostCounts[$name] : ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
+                                if (!$info) continue;
+                                list($label, $class) = hostStateLabel($info["state"]);
+                                $rowClass = $hostStatus[$name] === "red" ? "crit" : ($hostStatus[$name] === "yellow" ? "warn" : "");
+                            ?>
+                            <tr class="<?php echo $rowClass; ?>">
+                                <td class="host-name"><?php echo htmlspecialchars($name); ?></td>
+                                <td><span class="badge <?php echo $class; ?>"><?php echo $label; ?></span></td>
+                                <td class="count-ok"><?php echo $counts["ok"]; ?></td>
+                                <td class="count-warn"><?php echo $counts["warn"]; ?></td>
+                                <td class="count-crit"><?php echo $counts["crit"]; ?></td>
+                                <td class="count-unknown"><?php echo $counts["unknown"]; ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 <?php endif; ?>
 
                 <div class="updated">Last updated <?php echo date("H:i:s"); ?></div>
@@ -609,49 +485,18 @@ function statusClass($status) {
 
         <?php if (!$nocError && $nocDataText !== ""): ?>
         fetch("jira.php?action=noc_summary")
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                nocSummaryBox.innerHTML = data.summary;
-            } else {
-                nocSummaryBox.innerHTML = "<p>Could not generate the monitoring summary: " + data.error + "</p>";
-            }
-        })
-        .catch(() => {
-            nocSummaryBox.innerHTML = "<p>Could not generate the monitoring summary.</p>";
-        });
-    <?php endif; ?>
-
-        document.querySelectorAll(".summary-btn").forEach(btn => {
-            btn.addEventListener("click", () => {
-                const key = btn.getAttribute("data-key");
-                const box = document.getElementById("ticket-" + key).querySelector(".ai-summary");
-                btn.disabled = true;
-                btn.textContent = "Generating summary...";
-                box.style.display = "block";
-                box.textContent = "Asking the AI to read the ticket comments, this may take a moment...";
-
-                fetch("jira.php?action=summary&key=" + encodeURIComponent(key))
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            box.innerHTML = data.summary;
-                            btn.textContent = "Refresh summary";
-                        } else {
-                            box.style.display = "none";
-                            btn.textContent = "Retry";
-                            box.insertAdjacentHTML("afterend", '<div class="ai-error">' + data.error + '</div>');
-                        }
-                    })
-                    .catch(() => {
-                        box.style.display = "none";
-                        btn.textContent = "Retry";
-                    })
-                    .finally(() => {
-                        btn.disabled = false;
-                    });
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    nocSummaryBox.innerHTML = data.summary;
+                } else {
+                    nocSummaryBox.innerHTML = "<p>Could not generate the monitoring summary: " + data.error + "</p>";
+                }
+            })
+            .catch(() => {
+                nocSummaryBox.innerHTML = "<p>Could not generate the monitoring summary.</p>";
             });
-        });
+        <?php endif; ?>
     </script>
 </body>
 </html>
