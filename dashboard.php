@@ -268,6 +268,9 @@ if (!$cached) {
             }
         }
         $serverList = array_values(array_unique($serverList));
+        $serverList = array_values(array_filter($serverList, function ($name) {
+            return stripos($name, "nag") !== false;
+        }));
 
         foreach ($serverList as $name) {
             $hostStatus[$name] = "green";
