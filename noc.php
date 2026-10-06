@@ -181,7 +181,6 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="30">
     <title><?php echo htmlspecialchars(MONITORED_SERVER); ?> Monitoring</title>
     <style>
         body {
@@ -339,9 +338,32 @@ try {
         }
 
         .updated { text-align: center; color: #666; font-size: 12px; margin-top: 20px; }
+
+        .refresh-timer {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            border: 2px solid #00f0ff;
+            border-radius: 10px;
+            padding: 8px 16px;
+            background: rgba(0, 240, 255, 0.07);
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.35);
+            color: #aaa;
+            font-size: 13px;
+            letter-spacing: 1px;
+        }
+
+        .refresh-timer .seconds {
+            color: #fff;
+            font-size: 18px;
+            font-weight: 900;
+            margin-left: 6px;
+            text-shadow: 0 0 8px #00f0ff;
+        }
     </style>
 </head>
 <body>
+    <div class="refresh-timer">Refresh in<span class="seconds" id="refresh-countdown">30</span></div>
     <div class="container">
         <h1><?php echo htmlspecialchars(MONITORED_SERVER); ?> Dashboard</h1>
 
@@ -428,6 +450,18 @@ try {
 
         tabDetails.addEventListener("click", () => setMode(false));
         tabPlain.addEventListener("click", () => setMode(true));
+
+        const REFRESH_SECONDS = 30;
+        let remaining = REFRESH_SECONDS;
+        const countdownEl = document.getElementById("refresh-countdown");
+
+        setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                location.reload();
+            }
+            countdownEl.textContent = remaining;
+        }, 1000);
     </script>
 </body>
 </html>
