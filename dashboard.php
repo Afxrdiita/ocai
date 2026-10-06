@@ -610,7 +610,7 @@ header("Cache-Control: no-cache, must-revalidate");
             border: none;
             color: #ff5a5a;
             font-size: 18px;
-            cursor: not-allowed;
+            cursor: pointer;
         }
 
         .popup-content {
@@ -798,15 +798,13 @@ header("Cache-Control: no-cache, must-revalidate");
                 <span>Page Summary</span>
                 <button class="popup-close-btn" id="popup-close-btn" title="Close">&#10006;</button>
             </div>
-            <div class="popup-content" id="popup-summary">
-                <p>Building the summary from the page information...</p>
-            </div>
-            <div class="popup-captcha">
-                <div class="popup-captcha-label">Prove you're not a robot to close this window:</div>
+            <div class="popup-content" id="popup-summary"></div>
+            <div class="popup-captcha" id="popup-captcha">
+                <div class="popup-captcha-label">Prove you're not a robot to see the summary:</div>
                 <div class="popup-captcha-row">
                     <canvas id="captcha-canvas" width="140" height="44"></canvas>
                     <input type="text" id="captcha-input" placeholder="Type the code" autocomplete="off">
-                    <button class="captcha-close" id="captcha-close">Close</button>
+                    <button class="captcha-close" id="captcha-close">Show Summary</button>
                 </div>
                 <div class="captcha-error" id="captcha-error"></div>
             </div>
@@ -898,6 +896,7 @@ header("Cache-Control: no-cache, must-revalidate");
         function loadSummary() {
             if (summaryRequested) return;
             summaryRequested = true;
+            popupSummary.innerHTML = "<p>Building the summary from the page information...</p>";
             fetch("?action=summary")
                 .then(r => r.json())
                 .then(data => {
@@ -912,25 +911,37 @@ header("Cache-Control: no-cache, must-revalidate");
                 });
         }
 
+        let captchaPassed = false;
+        const popupCaptcha = document.getElementById("popup-captcha");
+
         infoBubble.addEventListener("click", () => {
             playPing();
             popupOverlay.classList.add("open");
+            captchaPassed = false;
+            summaryRequested = false;
+            popupSummary.innerHTML = "";
+            popupCaptcha.style.display = "";
             captchaInput.value = "";
             captchaError.textContent = "";
             drawCaptcha();
-            loadSummary();
+            captchaInput.focus();
         });
 
         popupCloseBtn.addEventListener("click", () => {
-            captchaError.textContent = "To close this window you must complete the captcha below.";
-            captchaInput.focus();
+            if (!captchaPassed) {
+                captchaError.textContent = "Complete the captcha below to see the summary first.";
+                captchaInput.focus();
+                return;
+            }
+            popupOverlay.classList.remove("open");
         });
 
         captchaClose.addEventListener("click", () => {
             if (captchaInput.value.trim().toUpperCase() === captchaCode) {
-                popupOverlay.classList.remove("open");
+                captchaPassed = true;
                 captchaError.textContent = "";
-                summaryRequested = false;
+                popupCaptcha.style.display = "none";
+                loadSummary();
             } else {
                 captchaError.textContent = "Incorrect code, try again.";
                 captchaInput.value = "";
