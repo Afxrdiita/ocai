@@ -2,6 +2,7 @@
 const THURUK_BASE_URL = "https://monitoring-dr.options-it.com/thruk";
 const THURUK_HOSTGROUP = "NOC - Servers";
 const THURUK_API_KEY_ENV = "THURUK_API_KEY";
+const MAX_ITEMS = 50;
 
 function getApiKey() {
     $key = getenv(THURUK_API_KEY_ENV);
@@ -23,8 +24,12 @@ function thrukGet($path) {
         curl_close($ch);
         throw new Exception("Thruk API request failed: " . $error);
     }
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
     $data = json_decode($body, true);
+    if ($status !== 200) {
+        throw new Exception("Thruk API returned HTTP " . $status);
+    }
     if (!is_array($data)) {
         throw new Exception("Thruk API returned invalid data");
     }
@@ -53,26 +58,53 @@ function stateLabel($state) {
     }
 }
 
-$error = null;
-$services = [];
-$now = time();
-
-try {
+function fetchRows() {
+    $rows = [];
+    $hosts = thrukGet("hosts?hostgroups=" . urlencode(THURUK_HOSTGROUP));
+    foreach ($hosts as $h) {
+        $rows[] = [
+            "type" => "host",
+            "host" => isset($h["name"]) ? $h["name"] : (isset($h["host_name"]) ? $h["host_name"] : "?"),
+            "service" => "",
+            "state" => isset($h["state"]) ? $h["state"] : -1,
+            "last_state_change" => isset($h["last_state_change"]) ? $h["last_state_change"] : 0,
+            "output" => isset($h["plugin_output"]) ? $h["plugin_output"] : "",
+        ];
+    }
     $services = thrukGet("services?hostgroups=" . urlencode(THURUK_HOSTGROUP));
-    usort($services, function ($a, $b) use ($now) {
-        $da = $now - (isset($a["last_state_change"]) ? $a["last_state_change"] : 0);
-        $db = $now - (isset($b["last_state_change"]) ? $b["last_state_change"] : 0);
+    foreach ($services as $s) {
+        $rows[] = [
+            "type" => "service",
+            "host" => isset($s["host_name"]) ? $s["host_name"] : "?",
+            "service" => isset($s["description"]) ? $s["description"] : "?",
+            "state" => isset($s["state"]) ? $s["state"] : -1,
+            "last_state_change" => isset($s["last_state_change"]) ? $s["last_state_change"] : 0,
+            "output" => isset($s["plugin_output"]) ? $s["plugin_output"] : "",
+        ];
+    }
+    usort($rows, function ($a, $b) {
+        $db = $b["last_state_change"];
+        $da = $a["last_state_change"];
         return $db <=> $da;
     });
+    return array_slice($rows, 0, MAX_ITEMS);
+}
+
+$error = null;
+$rows = [];
+$counts = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
+
+try {
+    $rows = fetchRows();
+    foreach ($rows as $r) {
+        $counts[stateLabel($r["state"])[1]]++;
+    }
 } catch (Exception $e) {
     $error = $e->getMessage();
 }
 
-$counts = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
-foreach ($services as $s) {
-    $counts[stateLabel(isset($s["state"]) ? $s["state"] : -1)[1]]++;
-}
-$total = count($services);
+$total = count($rows);
+$now = time();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -217,25 +249,26 @@ $total = count($services);
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($services as $s):
-                        $state = isset($s["state"]) ? $s["state"] : -1;
-                        list($label, $class) = stateLabel($state);
-                        $duration = $now - (isset($s["last_state_change"]) ? $s["last_state_change"] : $now);
+                    <?php foreach ($rows as $r):
+                        list($label, $class) = stateLabel($r["state"]);
+                        $duration = $now - $r["last_state_change"];
                     ?>
                     <tr class="<?php echo $class; ?>">
                         <td class="duration"><?php echo formatDuration($duration); ?></td>
-                        <td class="host"><?php echo htmlspecialchars(isset($s["host_name"]) ? $s["host_name"] : "?"); ?></td>
-                        <td class="svc"><?php echo htmlspecialchars(isset($s["description"]) ? $s["description"] : "?"); ?></td>
+                        <td class="host"><?php echo htmlspecialchars($r["host"]); ?></td>
+                        <td class="svc"><?php echo $r["service"] !== "" ? htmlspecialchars($r["service"]) : "—"; ?></td>
                         <td><span class="badge <?php echo $class; ?>"><?php echo $label; ?></span></td>
                         <td class="duration"><?php echo formatDuration($duration); ?></td>
-                        <td class="output"><?php echo htmlspecialchars(isset($s["plugin_output"]) ? $s["plugin_output"] : ""); ?></td>
+                        <td class="output"><?php echo htmlspecialchars($r["output"]); ?></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
 
             <?php if ($total === 0): ?>
-                <div class="error-box">No services found for hostgroup '<?php echo htmlspecialchars(THURUK_HOSTGROUP); ?>'.</div>
+                <div class="error-box">No hosts or services found for hostgroup '<?php echo htmlspecialchars(THURUK_HOSTGROUP); ?>'.</div>
+            <?php else: ?>
+                <div class="updated" style="margin-top:0;">Showing top <?php echo $total; ?> of all hosts and services by urgency</div>
             <?php endif; ?>
         <?php endif; ?>
 
