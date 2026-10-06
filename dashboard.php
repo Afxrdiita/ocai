@@ -246,49 +246,65 @@ $services = [];
 $counts = ["ok" => 0, "warn" => 0, "crit" => 0, "unknown" => 0];
 $hostStatus = [];
 $now = time();
+set_time_limit(120);
 
-try {
-    $allHosts = thrukGet("hosts?columns=name&sort=name");
-    foreach ($allHosts as $h) {
-        if (isset($h["name"]) && $h["name"] !== "") {
-            $serverList[] = $h["name"];
-        }
+$statusCacheFile = sys_get_temp_dir() . "/noc_status_cache.ser";
+$cached = false;
+if (file_exists($statusCacheFile) && (time() - filemtime($statusCacheFile)) < 60) {
+    $cache = @unserialize((string)file_get_contents($statusCacheFile));
+    if (is_array($cache) && isset($cache["serverList"]) && is_array($cache["serverList"]) && isset($cache["hostStatus"]) && is_array($cache["hostStatus"])) {
+        $serverList = $cache["serverList"];
+        $hostStatus = $cache["hostStatus"];
+        $cached = true;
     }
-    $serverList = array_values(array_unique($serverList));
+}
 
-    foreach ($serverList as $name) {
-        $hostStatus[$name] = "green";
-    }
-
-    $allServices = thrukGet("services?columns=host_name,state");
-    foreach ($allServices as $row) {
-        $h = isset($row["host_name"]) ? $row["host_name"] : "";
-        if (!in_array($h, $serverList, true)) {
-            continue;
-        }
-        $st = (int)(isset($row["state"]) ? $row["state"] : -1);
-        if ($st === 2) {
-            $hostStatus[$h] = "red";
-        } elseif ($st === 1 || $st === 3) {
-            if ($hostStatus[$h] !== "red") {
-                $hostStatus[$h] = "yellow";
+if (!$cached) {
+    try {
+        $allHosts = thrukGet("hosts?columns=name&sort=name");
+        foreach ($allHosts as $h) {
+            if (isset($h["name"]) && $h["name"] !== "") {
+                $serverList[] = $h["name"];
             }
         }
-    }
+        $serverList = array_values(array_unique($serverList));
 
-    $hostStates = thrukGet("hosts?columns=name,state");
-    foreach ($hostStates as $row) {
-        $h = isset($row["name"]) ? $row["name"] : "";
-        if (!in_array($h, $serverList, true)) {
-            continue;
+        foreach ($serverList as $name) {
+            $hostStatus[$name] = "green";
         }
-        $st = (int)(isset($row["state"]) ? $row["state"] : -1);
-        if ($st === 1 || $st === 2) {
-            $hostStatus[$h] = "red";
+
+        $allServices = thrukGet("services?columns=host_name,state");
+        foreach ($allServices as $row) {
+            $h = isset($row["host_name"]) ? $row["host_name"] : "";
+            if (!in_array($h, $serverList, true)) {
+                continue;
+            }
+            $st = (int)(isset($row["state"]) ? $row["state"] : -1);
+            if ($st === 2) {
+                $hostStatus[$h] = "red";
+            } elseif ($st === 1 || $st === 3) {
+                if ($hostStatus[$h] !== "red") {
+                    $hostStatus[$h] = "yellow";
+                }
+            }
         }
+
+        $hostStates = thrukGet("hosts?columns=name,state");
+        foreach ($hostStates as $row) {
+            $h = isset($row["name"]) ? $row["name"] : "";
+            if (!in_array($h, $serverList, true)) {
+                continue;
+            }
+            $st = (int)(isset($row["state"]) ? $row["state"] : -1);
+            if ($st === 1 || $st === 2) {
+                $hostStatus[$h] = "red";
+            }
+        }
+
+        @file_put_contents($statusCacheFile, serialize(["serverList" => $serverList, "hostStatus" => $hostStatus]));
+    } catch (Exception $e) {
+        $error = $e->getMessage();
     }
-} catch (Exception $e) {
-    $error = $e->getMessage();
 }
 
 if (isset($pageHost)) {
